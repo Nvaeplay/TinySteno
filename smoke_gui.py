@@ -68,23 +68,29 @@ def shot(name: str) -> None:
 print("Rendering screens…")
 shot("01-lessons")
 
+window._navigate("fingers")
+shot("02-finger-positions")
+window.fingers._highlight_finger("l-ring")
+shot("03-finger-highlighted")
+
 window._navigate("custom")
 window.custom.editor.setPlainText(
     "the quick brown fox jumps over the lazy dog\n"
     "supercalifragilistic zzzyzx cat mat"
 )
 window.custom._analyse()
-shot("02-custom-text")
+shot("05-custom-text")
 
 window._navigate("explore")
-window.explore.show_stroke(parse_stroke("KAT"))
-shot("03-explore")
+window.explore.finger_check.setChecked(True)
+window.explore.show_stroke(parse_stroke("TKOG"))
+shot("04-explore")
 
 window._navigate("progress")
-shot("04-progress")
+shot("06-progress")
 
 window._navigate("settings")
-shot("05-settings")
+shot("07-settings")
 
 # ---- drive a real drill ---------------------------------------------------------------
 print("Driving the left/right lesson…")
@@ -92,7 +98,7 @@ window._start_lesson("left-right")
 settle()
 prompt = window.practice._session.prompt
 print(f"  prompt: {prompt.text!r} expects {prompt.outline}")
-shot("06-practice-chord-shown")
+shot("08-practice-chord-shown")
 
 # Press the mirrored chord: exactly the mistake CLAUDE.md describes.
 wrong = {"T-"} if prompt.outline == "-T" else parse_stroke(prompt.outline)
@@ -100,14 +106,14 @@ window._on_stroke(wrong, set())
 settle()
 print(f"  verdict shown: {window.practice.verdict_label.text()!r}")
 print(f"  detail: {window.practice.detail_label.text()!r}")
-shot("07-practice-side-swap")
+shot("09-practice-side-swap")
 
 # Now the correct chord.
 window.practice._locked = False
 window._on_stroke(parse_stroke(prompt.outline), set())
 settle()
 print(f"  verdict shown: {window.practice.verdict_label.text()!r}")
-shot("08-practice-correct")
+shot("10-practice-correct")
 
 # Finish the session to reach the summary.
 window.practice._locked = False
@@ -130,7 +136,7 @@ settle()
 if window.stack.currentWidget() is not window.summary:
     window.practice._finish()
 settle()
-shot("09-summary")
+shot("11-summary")
 
 print("\nSession summary tiles:")
 print(f"  prompts:  {window.summary.tile_prompts.value_label.text()}")

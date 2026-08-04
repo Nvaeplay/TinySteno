@@ -199,6 +199,64 @@ check("once solid, no hint at all", not fade.hint_level().shows_chord)
 fade.prompt.errors = 1
 check("an error brings the full hint back", fade.hint_level().shows_outline)
 
+section("Fingering — every key has an owner")
+from tinysteno import fingering
+from tinysteno.layout import KEYCAPS
+
+all_keys = {cap.key for cap in KEYCAPS}
+unassigned = [key for key in all_keys if fingering.finger_for(key) is None]
+check("every key on the board is assigned to a finger", not unassigned, str(unassigned))
+check("no key is claimed by two fingers",
+      len({k for f in fingering.FINGERS for k in f.keys}) ==
+      sum(len(f.keys) for f in fingering.FINGERS))
+check("both S switches share one finger",
+      len({fingering.finger_for(c.key).id for c in KEYCAPS if c.key == "S-"}) == 1)
+check("the right pinky covers the outer two columns",
+      set(fingering.FINGERS_BY_ID["r-pinky"].keys) == {"-T", "-S", "-D", "-Z"})
+check("the asterisk is not tied to one hand",
+      fingering.FINGERS_BY_ID["star"].is_shared)
+check("fingering mirrors across hands",
+      all(
+          fingering.FINGERS_BY_ID[f"l-{role}"].role
+          == fingering.FINGERS_BY_ID[f"r-{role}"].role
+          for role in ("ring", "middle", "index", "thumb", "pinky")
+      ))
+
+section("Fingering — one finger, two keys")
+doubles = fingering.double_presses(parse_stroke("TKOG"))
+check("TKOG needs a double press", len(doubles) == 1)
+check("and it is the left ring finger", doubles and doubles[0][0].id == "l-ring")
+check("holding T and K", doubles and set(doubles[0][1]) == {"T-", "K-"})
+
+check("OPB doubles on the right middle",
+      [f.id for f, _ in fingering.double_presses(parse_stroke("OPB"))] == ["r-middle"])
+check("TKPWO doubles on two fingers",
+      len(fingering.double_presses(parse_stroke("TKPWO"))) == 2)
+check("KAT needs no double press", not fingering.double_presses(parse_stroke("KAT")))
+
+check("chord description names the fingers",
+      "left ring" in fingering.describe_chord(parse_stroke("TKOG")))
+check("chord description flags the pair",
+      "together" in fingering.describe_chord(parse_stroke("TKOG")))
+check("single-key chords read cleanly",
+      fingering.describe_chord({"-T"}) == "right pinky T",
+      fingering.describe_chord({"-T"}))
+check("no double-press line when none is needed",
+      fingering.describe_double_presses(parse_stroke("KAT")) == "")
+check("double-press coaching mentions simultaneity",
+      "same time" in fingering.describe_double_presses(parse_stroke("TKOG")))
+
+section("Fingering — the guide's examples are real")
+from tinysteno.screens.fingers import DOUBLE_PRESS_EXAMPLES
+
+for word, outline, action, _why in DOUBLE_PRESS_EXAMPLES:
+    check(f"{outline} really writes “{word}”", dictionary.writes(outline, word))
+    found = fingering.double_presses(parse_stroke(outline))
+    check(f"{outline} really needs a double press", bool(found))
+    if found:
+        check(f"{outline}: guide names the right finger",
+              found[0][0].label.lower() in action, f"{action} vs {found[0][0].label}")
+
 section("Storage — round trip")
 import tempfile
 from pathlib import Path

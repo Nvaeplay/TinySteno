@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import theme
+from .. import fingering, theme
 from ..analysis import Verdict
 from ..layout import QWERTY_TO_KEY
 from ..session import Hint, Session
@@ -41,6 +41,7 @@ class PracticeScreen(QWidget):
         self._session: Session | None = None
         self._locked = False
         self._keyboard_fallback = False
+        self._show_finger_guidance = True
         self._held: set[str] = set()
         self._chord: set[str] = set()
 
@@ -100,6 +101,15 @@ class PracticeScreen(QWidget):
         self.keyboard = StenoKeyboard()
         root.addWidget(self.keyboard, stretch=1)
 
+        # Which finger does what for the chord on screen.
+        self.fingers_label = faint("")
+        self.fingers_label.setAlignment(Qt.AlignCenter)
+        self.doubles_label = faint("")
+        self.doubles_label.setAlignment(Qt.AlignCenter)
+        self.doubles_label.setStyleSheet(f"color: {theme.VOWEL}; font-size: 12px;")
+        root.addWidget(self.fingers_label)
+        root.addWidget(self.doubles_label)
+
         # Feedback
         self.feedback_card = Card(padding=14)
         self.feedback_card.setMinimumHeight(86)
@@ -148,6 +158,12 @@ class PracticeScreen(QWidget):
         self._keyboard_fallback = enabled
         self.keyboard.set_qwerty_labels(enabled)
 
+    def set_finger_guidance(self, enabled: bool) -> None:
+        self._show_finger_guidance = enabled
+        if not enabled:
+            self.fingers_label.setText("")
+            self.doubles_label.setText("")
+
     # ---- display ------------------------------------------------------------------
 
     def _show_prompt(self) -> None:
@@ -184,8 +200,25 @@ class PracticeScreen(QWidget):
         else:
             self.keyboard.clear()
 
+        self._show_fingers(prompt.current_stroke, hint)
         self.hint_button.setEnabled(hint is not Hint.FULL)
         self._update_header()
+
+    def _show_fingers(self, keys: set[str], hint: Hint) -> None:
+        """Name the fingers for the chord on screen.
+
+        The double-press coaching only appears at the full hint level -- once an item is
+        reliable the learner has the technique, and repeating it every time is noise.
+        """
+        if not self._show_finger_guidance or not hint.shows_chord:
+            self.fingers_label.setText("")
+            self.doubles_label.setText("")
+            return
+
+        self.fingers_label.setText(fingering.describe_chord(keys))
+        doubles = fingering.describe_double_presses(keys) if hint.shows_outline else ""
+        self.doubles_label.setText(doubles)
+        self.doubles_label.setVisible(bool(doubles))
 
     def _update_header(self) -> None:
         session = self._session

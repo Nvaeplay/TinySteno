@@ -22,6 +22,7 @@ from .lessons import LessonItem, sentence_lesson, validate_lessons
 from .machine import State, StenoMachine
 from .screens.custom import CustomTextScreen
 from .screens.explore import ExploreScreen
+from .screens.fingers import FingersScreen
 from .screens.home import HomeScreen
 from .screens.practice import PracticeScreen
 from .screens.progress import ProgressScreen
@@ -37,6 +38,7 @@ from .storage import Profile, SessionRecord
 
 _NAV = [
     ("home", "Lessons"),
+    ("fingers", "Finger positions"),
     ("custom", "Your own text"),
     ("explore", "Explore the board"),
     ("progress", "Progress"),
@@ -91,6 +93,8 @@ class MainWindow(QMainWindow):
         self.practice.session_finished.connect(self._on_session_finished)
         self.practice.exit_requested.connect(self._show_home)
 
+        self.fingers = FingersScreen()
+
         self.custom = CustomTextScreen()
         self.custom.set_dictionary(self.dictionary)
         self.custom.start_requested.connect(self._start_custom)
@@ -113,7 +117,7 @@ class MainWindow(QMainWindow):
         self.summary.review_requested.connect(lambda: self._start_lesson("review"))
 
         for screen in (
-            self.home, self.practice, self.custom,
+            self.home, self.practice, self.fingers, self.custom,
             self.explore, self.progress, self.settings, self.summary,
         ):
             self.stack.addWidget(screen)
@@ -163,6 +167,8 @@ class MainWindow(QMainWindow):
     def _navigate(self, key: str) -> None:
         if key == "home":
             self._show_home()
+        elif key == "fingers":
+            self.stack.setCurrentWidget(self.fingers)
         elif key == "custom":
             self.stack.setCurrentWidget(self.custom)
         elif key == "explore":
@@ -225,9 +231,7 @@ class MainWindow(QMainWindow):
             lesson_key=key,
             hint_mode=self.profile.settings.get("hint_mode", "adaptive"),
         )
-        self.practice.set_keyboard_fallback(
-            bool(self.profile.settings.get("keyboard_fallback", False))
-        )
+        self._apply_settings()
         self.practice.set_status(self.machine.state, self.machine.message)
         self.practice.start(session, title)
         self.stack.setCurrentWidget(self.practice)
@@ -299,6 +303,9 @@ class MainWindow(QMainWindow):
     def _apply_settings(self) -> None:
         self.practice.set_keyboard_fallback(
             bool(self.profile.settings.get("keyboard_fallback", False))
+        )
+        self.practice.set_finger_guidance(
+            bool(self.profile.settings.get("finger_guidance", True))
         )
 
     # ---- shutdown -----------------------------------------------------------------

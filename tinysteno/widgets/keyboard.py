@@ -20,7 +20,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
-from .. import theme
+from .. import fingering, theme
 from ..layout import BANK_GAP_AFTER_COL, GRID_COLS, KEYCAPS, KeyCap
 
 # Layout constants in "key pitch" units.
@@ -57,6 +57,8 @@ class StenoKeyboard(QWidget):
         self._swap_arcs: list[tuple[str, str]] = []
         self._hover: KeyCap | None = None
         self._show_qwerty = False
+        self._finger_mode = False
+        self._seam_mode = False
 
         self._phase = 0.0
         self._timer = QTimer(self)
@@ -113,6 +115,16 @@ class StenoKeyboard(QWidget):
 
     def set_qwerty_labels(self, enabled: bool) -> None:
         self._show_qwerty = enabled
+        self.update()
+
+    def set_finger_colors(self, enabled: bool) -> None:
+        """Tint resting keys by the finger that owns them."""
+        self._finger_mode = enabled
+        self.update()
+
+    def set_seam_hints(self, enabled: bool) -> None:
+        """Mark where each finger rests: in the seam between the two rows, not on a key."""
+        self._seam_mode = enabled
         self.update()
 
     # ---- animation ----------------------------------------------------------------
@@ -207,18 +219,95 @@ class StenoKeyboard(QWidget):
         for cap in KEYCAPS:
             self._paint_key(painter, cap, unit, pulse)
 
+        if self._seam_mode:
+            self._paint_seams(painter, unit)
+
         for from_key, to_key in self._swap_arcs:
             self._paint_swap_arc(painter, from_key, to_key, unit, pulse)
 
         painter.end()
 
+    # Where each fingertip rests. The non-thumb fingers sit at the seam between the two
+    # rows (y = 1.0 in grid units) so a single finger can depress both keys of its column.
+    _RESTS: tuple[tuple[str, float, float, float], ...] = (
+        # finger id, centre column, centre row, width in columns
+        ("l-pinky", 0.0, 1.0, 1.0),
+        ("l-ring", 1.0, 1.0, 1.0),
+        ("l-middle", 2.0, 1.0, 1.0),
+        ("l-index", 3.0, 1.0, 1.0),
+        ("star", 4.0, 1.0, 1.0),
+        ("r-index", 5.0, 1.0, 1.0),
+        ("r-middle", 6.0, 1.0, 1.0),
+        ("r-ring", 7.0, 1.0, 1.0),
+        ("r-pinky", 8.5, 1.0, 2.0),
+        # The thumbs have no seam between rows -- their two keys sit side by side, so the
+        # resting spot is the gap between them. Kept narrow so it does not cover the labels.
+        ("l-thumb", 2.5, -1.0, 0.8),
+        ("r-thumb", 6.5, -1.0, 0.8),
+    )
+
+    def _grid_point(self, col: float, row: float, unit: float) -> QPointF:
+        origin = self._origin()
+        x = origin.x() + (col + 0.5) * unit
+        if col > BANK_GAP_AFTER_COL:
+            x += GUTTER * unit
+        if row < 0:  # thumb row, vertically centred on the keycaps
+            y = origin.y() + (2 + THUMB_DROP + 0.5) * unit
+        else:
+            y = origin.y() + row * unit
+        return QPointF(x, y)
+
+    def _paint_seams(self, painter: QPainter, unit: float) -> None:
+        """Draw a fingertip pad at each resting position."""
+        height = unit * 0.20
+        for finger_id, col, row, width in self._RESTS:
+            finger = fingering.FINGERS_BY_ID[finger_id]
+            centre = self._grid_point(col, row, unit)
+            pad = QRectF(
+                centre.x() - width * unit * 0.30,
+                centre.y() - height / 2,
+                width * unit * 0.60,
+                height,
+            )
+            colour = QColor(finger.color)
+
+            if finger.is_shared:
+                # The asterisk has no owning hand, so it gets an outline rather than a pad.
+                colour.setAlphaF(0.75)
+                pen = QPen(colour, max(1.0, unit * 0.030))
+                pen.setStyle(Qt.DashLine)
+                painter.setPen(pen)
+                painter.setBrush(Qt.NoBrush)
+            else:
+                painter.setPen(Qt.NoPen)
+                glow = QColor(colour)
+                glow.setAlphaF(0.22)
+                painter.setBrush(glow)
+                painter.drawRoundedRect(
+                    pad.adjusted(-unit * 0.05, -unit * 0.05, unit * 0.05, unit * 0.05),
+                    height, height,
+                )
+                colour.setAlphaF(0.92)
+                painter.setBrush(colour)
+            painter.drawRoundedRect(pad, height / 2, height / 2)
+
     def _paint_key(self, painter: QPainter, cap: KeyCap, unit: float, pulse: float) -> None:
         rect = self._cell(cap)
         radius = CORNER * unit
         state = self._states.get(cap.key, KeyState.IDLE)
+
+        # In finger mode the whole board speaks in finger colours rather than bank colours,
+        # so a highlighted key matches its row in the legend.
         base = theme.bank_color(cap.key)
+        if self._finger_mode:
+            base = fingering.color_for(cap.key) or base
 
         fill, border, text_color, glow = self._colors_for(state, base, pulse)
+
+        if state is KeyState.IDLE and self._finger_mode:
+            fill = theme.qcolor(base, 0.14)
+            border = theme.mix(theme.BORDER, base, 0.55)
+            text_color = QColor(base)
 
         if glow > 0.02:
             self._paint_glow(painter, rect, radius, QColor(border), glow, unit)

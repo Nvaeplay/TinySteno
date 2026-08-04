@@ -89,6 +89,7 @@ DEFAULT_SETTINGS = {
     "session_length": 20,
     "dictionary_paths": [],        # empty = use Plover's default trio
     "keyboard_fallback": False,    # accept QWERTY input when no device is present
+    "finger_guidance": True,       # name the fingers for the chord during practice
 }
 
 

@@ -4,7 +4,7 @@ A Windows 11 practice companion for the TinyMod4. It shows you a word, lights th
 chord on an on-screen board, waits for you to press it on the real hardware, and then tells
 you precisely what happened — including when you reached for the wrong side of the board.
 
-![Practice screen](shots/06-practice-chord-shown.png)
+![Practice screen](shots/12-practice-fingers.png)
 
 ## Running it
 
@@ -43,11 +43,31 @@ firmware transmits nothing and a working board looks dead.
 beginner error coming from QWERTY. The app names it, draws an arc from the key you hit to
 the key you wanted, and tracks it separately in your stats.
 
-![Side swap feedback](shots/07-practice-side-swap.png)
+![Side swap feedback](shots/09-practice-side-swap.png)
 
 The rule is deliberately strict: a swap is only reported when it actually explains the
 mistake. Two chords sharing a letter across the banks by coincidence — `TKOG` against `KAT`
 — is reported as a plain wrong chord, not as a hand mix-up.
+
+**Teaches where your fingers go.** Each finger owns one vertical column — that part of
+stenotype fingering is standard across every major theory. The part beginners miss is that
+your fingers rest in the *seam between the two rows*, not centred on a key, because a great
+many sounds need both keys of a column held at once. Fourteen chords in the built-in
+lessons require it: `TKOG` (dog) is impossible unless your left ring finger can hold T and K
+together.
+
+![Finger positions](shots/02-finger-positions.png)
+
+The **Finger positions** screen colours the board by finger — mirrored, so both ring fingers
+are the same colour — marks every resting spot, and lets you click a finger to light its
+keys. During practice, the chord on screen is read out as "left ring T+K together · left
+thumb O · right ring G", and the double-press coaching appears whenever the full hint is
+showing.
+
+Where there genuinely isn't a standard, the guide says so: which hand takes the asterisk,
+how far the right pinky stretches for `-D` and `-Z`, and the fact that a TinyMod's flat
+unsculpted keys make the resting position harder to hold than a real stenotype's contoured
+ones.
 
 **Teaches verified outlines.** `main.json` contains a lot of misstroke-forgiveness entries,
 so ranking by length alone would happily teach `OB` for "on" instead of `OPB`. Lesson
@@ -78,8 +98,10 @@ your dictionary listed rather than silently skipped.
 
 ## Other screens
 
-- **Explore the board** — click keys to build a chord and see what it writes. Doubles as
-  the connection test.
+- **Finger positions** — the placement guide, the resting-seam technique, and the
+  double-press chords that depend on it.
+- **Explore the board** — click keys to build a chord and see what it writes, with the
+  finger reading underneath. Doubles as the connection test.
 - **Progress** — accuracy, solid items, and a breakdown of *where* the mistakes are, with
   hand mix-ups called out separately. Feeds the review deck.
 - **Settings** — port selection, hint mode, session length, and a QWERTY fallback so you
@@ -110,6 +132,7 @@ tinysteno/
   machine.py            serial thread, DTR handling, reconnection
   dictionary.py         Plover dictionary loading and reverse lookup
   analysis.py           comparing what you pressed against what was asked
+  fingering.py          which finger owns which column, and double-press detection
   lessons.py            curated lesson content plus startup validation
   session.py            the drill loop, hint fading, spaced repetition
   storage.py            settings, per-item stats, session history
@@ -127,7 +150,9 @@ py tests.py
 
 Covers the hardware frame captures, hyphen and number-bar conventions, frame
 resynchronisation, dictionary lookups, every error verdict, lesson validation, the drill
-loop including multi-stroke and undo, hint fading, and profile round-tripping.
+loop including multi-stroke and undo, hint fading, finger assignment and double-press
+detection, and profile round-tripping. Every worked example in the finger guide is checked
+against the real dictionary, so the guide cannot drift from what the app actually teaches.
 
 ```bash
 py smoke_gui.py shots

@@ -123,6 +123,12 @@ class SettingsScreen(QWidget):
         self.length_spin.valueChanged.connect(self._emit)
         practice_form.addRow("Session length", self.length_spin)
 
+        self.finger_guidance = QCheckBox(
+            "Name the fingers for each chord while practising"
+        )
+        self.finger_guidance.toggled.connect(self._emit)
+        practice_form.addRow("", self.finger_guidance)
+
         practice_card.body.addLayout(practice_form)
         layout.addWidget(practice_card)
 
@@ -167,6 +173,7 @@ class SettingsScreen(QWidget):
         hint_index = self.hint_combo.findData(settings.get("hint_mode", "adaptive"))
         self.hint_combo.setCurrentIndex(max(0, hint_index))
         self.length_spin.setValue(int(settings.get("session_length", 20)))
+        self.finger_guidance.setChecked(bool(settings.get("finger_guidance", True)))
         self._loading = False
 
     def set_status(self, state: str, message: str) -> None:
@@ -201,5 +208,6 @@ class SettingsScreen(QWidget):
                 "keyboard_fallback": self.keyboard_fallback.isChecked(),
                 "hint_mode": self.hint_combo.currentData(),
                 "session_length": self.length_spin.value(),
+                "finger_guidance": self.finger_guidance.isChecked(),
             }
         )

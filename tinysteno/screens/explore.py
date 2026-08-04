@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .. import theme
+from .. import fingering, theme
 from ..protocol import format_stroke, sort_keys
 from ..widgets.common import Card, StatusPill, faint, heading, mono_label
 from ..widgets.keyboard import StenoKeyboard
@@ -53,10 +53,14 @@ class ExploreScreen(QWidget):
         self.translation_label.setAlignment(Qt.AlignCenter)
         self.keys_label = faint("")
         self.keys_label.setAlignment(Qt.AlignCenter)
+        self.fingers_label = faint("")
+        self.fingers_label.setAlignment(Qt.AlignCenter)
+        self.fingers_label.setStyleSheet(f"color: {theme.VOWEL}; font-size: 12px;")
 
         readout.body.addWidget(self.outline_label)
         readout.body.addWidget(self.translation_label)
         readout.body.addWidget(self.keys_label)
+        readout.body.addWidget(self.fingers_label)
         layout.addWidget(readout)
 
         self.history_label = faint("")
@@ -68,9 +72,13 @@ class ExploreScreen(QWidget):
         self.status = StatusPill()
         self.qwerty_check = QCheckBox("Show QWERTY equivalents")
         self.qwerty_check.toggled.connect(self.keyboard.set_qwerty_labels)
+        self.finger_check = QCheckBox("Colour by finger")
+        self.finger_check.toggled.connect(self.keyboard.set_finger_colors)
+        self.finger_check.toggled.connect(self.keyboard.set_seam_hints)
         clear_button = QPushButton("Clear")
         clear_button.clicked.connect(self._clear)
         footer.addWidget(self.status, stretch=1)
+        footer.addWidget(self.finger_check)
         footer.addWidget(self.qwerty_check)
         footer.addWidget(clear_button)
         layout.addLayout(footer)
@@ -108,12 +116,14 @@ class ExploreScreen(QWidget):
             self.translation_label.setText("Build a chord to see what it writes")
             self.translation_label.setStyleSheet(f"color: {theme.TEXT_DIM};")
             self.keys_label.setText("")
+            self.fingers_label.setText("")
             return
 
         outline = format_stroke(self._chord)
         self.keyboard.show_chord(self._chord)
         self.outline_label.setText(outline)
         self.keys_label.setText("  ".join(sort_keys(self._chord)))
+        self.fingers_label.setText(fingering.describe_chord(self._chord))
 
         translation = self._dictionary.lookup(outline) if self._dictionary else None
         if translation:
