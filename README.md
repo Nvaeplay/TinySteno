@@ -8,12 +8,12 @@ you exactly what happened.
 
 ## Running it
 
-Grab `TinySteno-1.3.0.exe` from the [latest release](https://github.com/Nvaeplay/TinySteno/releases/latest)
+Grab the exe from the [latest release](https://github.com/Nvaeplay/TinySteno/releases/latest)
 and double-click it. Nothing to install — no Python, no Qt, no dependencies. It is a single
 48 MB file that starts in about a second and can live anywhere, including a USB stick.
 
-The version is in the filename, so a copy you downloaded months ago identifies itself
-without opening its properties.
+Builds are named `TinySteno-<version>.exe`, so a copy you downloaded months ago identifies
+itself without your having to open its properties.
 
 To run from source instead:
 
