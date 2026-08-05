@@ -8,7 +8,7 @@ you exactly what happened.
 
 ## Running it
 
-Grab the exe from the [latest release](https://github.com/Nvaeplay/TinySteno/releases/latest)
+Grab `TinySteno-1.3.0.exe` from the [latest release](https://github.com/Nvaeplay/TinySteno/releases/latest)
 and double-click it. Nothing to install — no Python, no Qt, no dependencies. It is a single
 48 MB file that starts in about a second and can live anywhere, including a USB stick.
 
