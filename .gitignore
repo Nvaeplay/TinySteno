@@ -1,10 +1,13 @@
 __pycache__/
 *.py[cod]
 *.egg-info/
-build/
-dist/
 .venv/
 venv/
 
-# Local practice profile lives in %LOCALAPPDATA%, but ignore it here too just in case.
+# PyInstaller output. The exe is ~48 MB, so it is distributed as a release asset rather
+# than committed. Rebuild with: py -m PyInstaller tinysteno.spec --noconfirm
+build/
+dist/
+
+# Local practice profile lives in %LOCALAPPDATA%, but ignore it here just in case.
 profile.json

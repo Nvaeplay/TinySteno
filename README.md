@@ -8,16 +8,41 @@ you precisely what happened — including when you reached for the wrong side of
 
 ## Running it
 
+Grab `TinyMod4 Steno Trainer.exe` and double-click it. Nothing to install — no Python, no
+Qt, no dependencies. It is a single 48 MB file that starts in about a second and can live
+anywhere, including a USB stick.
+
+To run from source instead:
+
 ```bash
 py run.py
 ```
 
-Or double-click `TinyMod4 Trainer.bat`.
-
-Dependencies (already installed): `PySide6`, `pyserial`.
+Dependencies: `PySide6`, `pyserial`.
 
 ```bash
 py -m pip install PySide6 pyserial
+```
+
+### Building the exe yourself
+
+```bash
+py -m PyInstaller tinysteno.spec --noconfirm
+```
+
+Output lands in `dist/`. Set `TINYSTENO_ONEDIR=1` first for a one-folder build instead —
+120 MB, but starts in 0.4 s rather than 1.1 s.
+
+The spec excludes about fifty PySide6 modules the app never imports (WebEngine, Qt3D,
+Charts, Multimedia, QML/Quick and friends). That is what keeps it to 48 MB; a default
+PySide6 build of this app is over 150 MB and takes several seconds to start. A check in
+`tests.py` confirms the source really does import nothing but QtCore, QtGui and QtWidgets,
+so the exclude list cannot quietly go stale.
+
+The icon is generated rather than checked in as a binary blob:
+
+```bash
+py tools/make_icon.py
 ```
 
 ## Before you practise

@@ -257,6 +257,36 @@ for word, outline, action, _why in DOUBLE_PRESS_EXAMPLES:
         check(f"{outline}: guide names the right finger",
               found[0][0].label.lower() in action, f"{action} vs {found[0][0].label}")
 
+section("Packaging — the PyInstaller exclude list is still honest")
+import ast
+import pathlib
+import re
+
+_spec = pathlib.Path("tinysteno.spec")
+if not _spec.exists():
+    check("tinysteno.spec present", False, "spec file missing")
+else:
+    _excluded = set(re.findall(r'"(PySide6\.\w+)"', _spec.read_text(encoding="utf-8")))
+    _imported: set[str] = set()
+    for _path in pathlib.Path(".").rglob("*.py"):
+        if {"build", "dist"} & set(_path.parts):
+            continue
+        _tree = ast.parse(_path.read_text(encoding="utf-8"))
+        for _node in ast.walk(_tree):
+            if isinstance(_node, ast.ImportFrom) and (_node.module or "").startswith("PySide6"):
+                _imported.add(_node.module)
+            elif isinstance(_node, ast.Import):
+                _imported.update(
+                    alias.name for alias in _node.names if alias.name.startswith("PySide6")
+                )
+
+    _clash = _imported & _excluded
+    check("no excluded Qt module is actually imported", not _clash, str(sorted(_clash)))
+    check("the app still needs only QtCore, QtGui and QtWidgets",
+          _imported == {"PySide6.QtCore", "PySide6.QtGui", "PySide6.QtWidgets"},
+          str(sorted(_imported)))
+    check("the exclude list is doing real work", len(_excluded) > 30, f"{len(_excluded)}")
+
 section("Storage — round trip")
 import tempfile
 from pathlib import Path
