@@ -216,33 +216,62 @@ check("tinymod4 exposes 22 distinct steno keys",
       len(TINYMOD.steno_keys) == 22, str(len(TINYMOD.steno_keys)))
 check("both S switches report S-", len(TINYMOD.keys_for("S-")) == 2)
 check("both star switches report *", len(TINYMOD.keys_for("*")) == 2)
-check("tinymod4 extents are unchanged",
-      abs(TINYMOD.width - 10.55) < 1e-9 and abs(TINYMOD.height - 3.42) < 1e-9,
+# 10 columns plus the clear space either side of the centre asterisk column. Widened
+# deliberately when the asterisks were separated out; a change here that was not intended
+# means the layout has drifted.
+check("tinymod4 extents are as intended",
+      abs(TINYMOD.width - 10.8) < 1e-9 and abs(TINYMOD.height - 3.42) < 1e-9,
       f"{TINYMOD.width} x {TINYMOD.height}")
 
-# The geometry the renderer used before profiles existed, reproduced from the old
-# constants. A regression here means the TinyMod4 view has silently shifted.
-_OLD_GUTTER, _OLD_THUMB_DROP = 0.55, 0.42
-_OLD_LAYOUT = {
-    ("S-", "S1-"): (0, 0), ("T-", "T-"): (1, 0), ("P-", "P-"): (2, 0),
-    ("H-", "H-"): (3, 0), ("*", "*1"): (4, 0),
-    ("-F", "-F"): (5, 0), ("-P", "-P"): (6, 0), ("-L", "-L"): (7, 0),
-    ("-T", "-T"): (8, 0), ("-D", "-D"): (9, 0),
-    ("S-", "S2-"): (0, 1), ("K-", "K-"): (1, 1), ("W-", "W-"): (2, 1),
-    ("R-", "R-"): (3, 1), ("*", "*3"): (4, 1),
-    ("-R", "-R"): (5, 1), ("-B", "-B"): (6, 1), ("-G", "-G"): (7, 1),
-    ("-S", "-S"): (8, 1), ("-Z", "-Z"): (9, 1),
-    ("A-", "A-"): (2, 2), ("O-", "O-"): (3, 2),
-    ("-E", "-E"): (6, 2), ("-U", "-U"): (7, 2),
-}
-_expected_layout = {
-    key: (col + (_OLD_GUTTER if col > 4 else 0), row + (_OLD_THUMB_DROP if row == 2 else 0))
-    for key, (col, row) in _OLD_LAYOUT.items()
-}
-_actual_layout = {(k.key, k.switch): (k.col, k.row) for k in TINYMOD.keys}
-check("tinymod4 geometry matches the pre-profile layout exactly",
-      _actual_layout == _expected_layout,
-      str(sorted(set(_expected_layout.items()) ^ set(_actual_layout.items()))[:2]))
+section("Board geometry — the asterisk column stands alone, thumbs tuck against it")
+
+
+def _span(keys):
+    """(left, right) x-extent of a group of keys."""
+    return min(k.col for k in keys), max(k.col + k.width for k in keys)
+
+
+for _profile in BUILTIN_PROFILES:
+    _stars = _profile.keys_for("*")
+    _thumbs = [k for k in _profile.keys if k.key in ("A-", "O-", "-E", "-U")]
+    if not _stars or not _thumbs:
+        continue
+
+    _star_l, _star_r = _span(_stars)
+    _others = [
+        k for k in _profile.keys
+        if k.key != "*" and k not in _thumbs and k.key != "#"
+    ]
+
+    # Nothing may sit inside the asterisk column's horizontal band.
+    _intruders = [
+        k.key for k in _others if k.col < _star_r and _star_l < k.col + k.width
+    ]
+    check(f"{_profile.id}: the asterisk column has clear space either side",
+          not _intruders, str(sorted(set(_intruders))))
+
+    # Nor directly beneath it, which is what "by themselves" means.
+    _under = [k.key for k in _thumbs if k.col < _star_r and _star_l < k.col + k.width]
+    check(f"{_profile.id}: no thumb sits under the asterisks", not _under, str(_under))
+
+    _left_thumbs = [k for k in _thumbs if k.key in ("A-", "O-")]
+    _right_thumbs = [k for k in _thumbs if k.key in ("-E", "-U")]
+    check(f"{_profile.id}: left thumbs tuck against the asterisk column",
+          abs(_span(_left_thumbs)[1] - _star_l) < 1e-9,
+          f"left thumbs end at {_span(_left_thumbs)[1]}, asterisks start at {_star_l}")
+    check(f"{_profile.id}: right thumbs tuck against the asterisk column",
+          abs(_span(_right_thumbs)[0] - _star_r) < 1e-9,
+          f"right thumbs start at {_span(_right_thumbs)[0]}, asterisks end at {_star_r}")
+
+    # Symmetric about the centre of the asterisk block.
+    _thumb_l, _thumb_r = _span(_thumbs)
+    check(f"{_profile.id}: thumbs are symmetric about the asterisks",
+          abs((_thumb_l + _thumb_r) / 2 - (_star_l + _star_r) / 2) < 1e-9)
+
+    # Thumbs sit inboard of the banks they belong to, not out at the edges.
+    check(f"{_profile.id}: thumbs sit inboard of the outer columns",
+          _thumb_l > _span(_profile.keys_for("S-"))[0]
+          and _thumb_r < _span(_profile.keys_for("-Z"))[1])
 
 check("a board reports what it can write", TINYMOD.supports(parse_stroke("KAT")))
 _no_z = BoardProfile(id="t", name="t", keys=tuple(
@@ -319,39 +348,31 @@ check("no double-press line when none is needed",
 check("double-press coaching mentions simultaneity",
       "same time" in fingering.describe_double_presses(parse_stroke("TKOG")))
 
-section("Fingering — rest positions are derived, not hand-placed")
+section("Fingering — rest positions are derived from the board, not hand-placed")
 
-# The positions the widget used before profiles existed, from its _RESTS table run through
-# the old _grid_point(). Deriving them from key centroids must reproduce these exactly.
-_OLD_RESTS = (
-    ("l-pinky", 0.0, 1.0, 1.0), ("l-ring", 1.0, 1.0, 1.0), ("l-middle", 2.0, 1.0, 1.0),
-    ("l-index", 3.0, 1.0, 1.0), ("star", 4.0, 1.0, 1.0), ("r-index", 5.0, 1.0, 1.0),
-    ("r-middle", 6.0, 1.0, 1.0), ("r-ring", 7.0, 1.0, 1.0), ("r-pinky", 8.5, 1.0, 2.0),
-    ("l-thumb", 2.5, -1.0, 0.8), ("r-thumb", 6.5, -1.0, 0.8),
-)
+_rests = {rest.finger.id: rest for rest in fingering.rest_positions(TINYMOD)}
+check("every finger on the board gets a resting position",
+      len(_rests) == 11, str(sorted(_rests)))
 
+# A finger owning a stacked pair should rest on the seam between them, which is the whole
+# point of the guide. That is the boundary row, not the middle of either key.
+for _fid, _seam_row in (("l-ring", 1.0), ("l-middle", 1.0), ("r-index", 1.0),
+                        ("r-middle", 1.0), ("r-pinky", 1.0), ("l-pinky", 1.0)):
+    check(f"{_fid} rests on the seam between the rows",
+          abs(_rests[_fid].y - _seam_row) < 1e-9, f"y={_rests[_fid].y}")
 
-def _old_point(col, row):
-    x = col + 0.5 + (_OLD_GUTTER if col > 4 else 0)
-    y = (2 + _OLD_THUMB_DROP + 0.5) if row < 0 else row
-    return x, y
+# A thumb pad belongs in the gap between its two keys, so it covers neither label.
+for _fid, _keys in (("l-thumb", ("A-", "O-")), ("r-thumb", ("-E", "-U"))):
+    _boundary = max(k.col + k.width for k in TINYMOD.keys_for(_keys[0]))
+    check(f"{_fid} rests between its two keys",
+          abs(_rests[_fid].x - _boundary) < 1e-9,
+          f"x={_rests[_fid].x}, boundary={_boundary}")
+    check(f"{_fid} pad stays narrow so it covers no label", _rests[_fid].width <= 0.8)
 
-
-_expected_rests = {
-    fid: (*_old_point(col, row), width) for fid, col, row, width in _OLD_RESTS
-}
-_derived = {
-    rest.finger.id: (rest.x, rest.y, rest.width)
-    for rest in fingering.rest_positions(TINYMOD)
-}
-check("every finger gets a resting position", set(_derived) == set(_expected_rests),
-      str(set(_expected_rests) ^ set(_derived)))
-_mismatched = [
-    fid for fid, expected in _expected_rests.items()
-    if fid in _derived and any(abs(a - b) > 1e-9 for a, b in zip(_derived[fid], expected))
-]
-check("derived positions match the old hand-placed ones exactly",
-      not _mismatched, str(_mismatched))
+check("stacked-pair pads span their column",
+      abs(_rests["l-ring"].width - 1.0) < 1e-9)
+check("the right pinky pad spans both its columns",
+      abs(_rests["r-pinky"].width - 2.0) < 1e-9, str(_rests["r-pinky"].width))
 
 for _profile in BUILTIN_PROFILES[1:]:
     _rests = fingering.rest_positions(_profile)

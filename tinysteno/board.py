@@ -193,10 +193,25 @@ def validate(profile: BoardProfile) -> list[str]:
 # Built-in profiles
 # ---------------------------------------------------------------------------------------
 
-# Horizontal gap between the two banks, and the drop to the thumb row. Baked into the
+# Clear space on each side of the centre asterisk column, so it reads as its own column
+# between the banks rather than as the last key of the left hand. Baked into the
 # coordinates below rather than applied by the renderer.
-_GAP = 0.55
+_STAR_GAP = 0.4
 _THUMB = 2.42
+
+# The thumbs sit inboard, tucked against the asterisk column from either side, which is
+# where thumbs naturally fall. Nothing sits directly beneath the asterisks.
+_LEFT_THUMB_START = 2.4    # A- and O- occupy 2.4-3.4 and 3.4-4.4
+_RIGHT_THUMB_START = 5.4   # -E and -U occupy 5.4-6.4 and 6.4-7.4
+
+
+def _right(col: float) -> float:
+    """Shift a right-bank column clear of the centre asterisk column."""
+    return col + 2 * _STAR_GAP
+
+
+def _star(col: float) -> float:
+    return col + _STAR_GAP
 
 
 def _tinymod4() -> BoardProfile:
@@ -205,26 +220,29 @@ def _tinymod4() -> BoardProfile:
     24 physical switches. Both S switches report S- and both star switches report *, the
     way one tall key would on a production stenotype.
     """
-    rows = (
-        # (canonical key, label, column, row, switch)
-        ("S-", "S", 0, 0, "S1-"), ("T-", "T", 1, 0, "T-"), ("P-", "P", 2, 0, "P-"),
-        ("H-", "H", 3, 0, "H-"), ("*", "*", 4, 0, "*1"),
-        ("-F", "F", 5, 0, "-F"), ("-P", "P", 6, 0, "-P"), ("-L", "L", 7, 0, "-L"),
-        ("-T", "T", 8, 0, "-T"), ("-D", "D", 9, 0, "-D"),
-        ("S-", "S", 0, 1, "S2-"), ("K-", "K", 1, 1, "K-"), ("W-", "W", 2, 1, "W-"),
-        ("R-", "R", 3, 1, "R-"), ("*", "*", 4, 1, "*3"),
-        ("-R", "R", 5, 1, "-R"), ("-B", "B", 6, 1, "-B"), ("-G", "G", 7, 1, "-G"),
-        ("-S", "S", 8, 1, "-S"), ("-Z", "Z", 9, 1, "-Z"),
-        ("A-", "A", 2, _THUMB, "A-"), ("O-", "O", 3, _THUMB, "O-"),
-        ("-E", "E", 6, _THUMB, "-E"), ("-U", "U", 7, _THUMB, "-U"),
-    )
     keys = tuple(
-        ProfileKey(
-            key=key, label=label,
-            col=col + (_GAP if col >= 5 else 0),
-            row=row, switch=switch,
+        ProfileKey(key=key, label=label, col=col, row=row, switch=switch)
+        for key, label, col, row, switch in (
+            # Left bank
+            ("S-", "S", 0, 0, "S1-"), ("T-", "T", 1, 0, "T-"),
+            ("P-", "P", 2, 0, "P-"), ("H-", "H", 3, 0, "H-"),
+            ("S-", "S", 0, 1, "S2-"), ("K-", "K", 1, 1, "K-"),
+            ("W-", "W", 2, 1, "W-"), ("R-", "R", 3, 1, "R-"),
+            # Centre column, alone
+            ("*", "*", _star(4), 0, "*1"), ("*", "*", _star(4), 1, "*3"),
+            # Right bank
+            ("-F", "F", _right(5), 0, "-F"), ("-P", "P", _right(6), 0, "-P"),
+            ("-L", "L", _right(7), 0, "-L"), ("-T", "T", _right(8), 0, "-T"),
+            ("-D", "D", _right(9), 0, "-D"),
+            ("-R", "R", _right(5), 1, "-R"), ("-B", "B", _right(6), 1, "-B"),
+            ("-G", "G", _right(7), 1, "-G"), ("-S", "S", _right(8), 1, "-S"),
+            ("-Z", "Z", _right(9), 1, "-Z"),
+            # Thumbs, tucked against the centre column from either side
+            ("A-", "A", _LEFT_THUMB_START, _THUMB, "A-"),
+            ("O-", "O", _LEFT_THUMB_START + 1, _THUMB, "O-"),
+            ("-E", "E", _RIGHT_THUMB_START, _THUMB, "-E"),
+            ("-U", "U", _RIGHT_THUMB_START + 1, _THUMB, "-U"),
         )
-        for key, label, col, row, switch in rows
     )
     return BoardProfile(
         id="tinymod4",
@@ -253,10 +271,10 @@ def _standard_stenotype() -> BoardProfile:
     thumb = home + 1.42
 
     keys: list[ProfileKey] = [
-        ProfileKey("#", "#", 0, 0, width=10 + _GAP, height=number_bar_h, switch="#1"),
+        ProfileKey("#", "#", 0, 0, width=_right(10), height=number_bar_h, switch="#1"),
         # S and the asterisk are single tall keys here, spanning both rows.
         ProfileKey("S-", "S", 0, top, height=2, switch="S1-"),
-        ProfileKey("*", "*", 4, top, height=2, switch="*1"),
+        ProfileKey("*", "*", _star(4), top, height=2, switch="*1"),
     ]
     for key, label, col in (("T-", "T", 1), ("P-", "P", 2), ("H-", "H", 3)):
         keys.append(ProfileKey(key, label, col, top, switch=key))
@@ -264,14 +282,16 @@ def _standard_stenotype() -> BoardProfile:
         keys.append(ProfileKey(key, label, col, home, switch=key))
     for key, label, col in (("-F", "F", 5), ("-P", "P", 6), ("-L", "L", 7),
                             ("-T", "T", 8), ("-D", "D", 9)):
-        keys.append(ProfileKey(key, label, col + _GAP, top, switch=key))
+        keys.append(ProfileKey(key, label, _right(col), top, switch=key))
     for key, label, col in (("-R", "R", 5), ("-B", "B", 6), ("-G", "G", 7),
                             ("-S", "S", 8), ("-Z", "Z", 9)):
-        keys.append(ProfileKey(key, label, col + _GAP, home, switch=key))
-    for key, label, col in (("A-", "A", 2), ("O-", "O", 3)):
+        keys.append(ProfileKey(key, label, _right(col), home, switch=key))
+    for key, label, col in (("A-", "A", _LEFT_THUMB_START),
+                            ("O-", "O", _LEFT_THUMB_START + 1)):
         keys.append(ProfileKey(key, label, col, thumb, switch=key))
-    for key, label, col in (("-E", "E", 6), ("-U", "U", 7)):
-        keys.append(ProfileKey(key, label, col + _GAP, thumb, switch=key))
+    for key, label, col in (("-E", "E", _RIGHT_THUMB_START),
+                            ("-U", "U", _RIGHT_THUMB_START + 1)):
+        keys.append(ProfileKey(key, label, col, thumb, switch=key))
 
     return BoardProfile(
         id="standard23",
@@ -293,26 +313,27 @@ def _split_ortho() -> BoardProfile:
     arrangement among DIY steno boards, and is meant as a starting point to adjust rather
     than an exact match for a specific keyboard.
     """
-    gap = 1.1  # Split boards sit further apart than a one-piece board.
-    rows = (
-        ("S-", "S", 0, 0), ("T-", "T", 1, 0), ("P-", "P", 2, 0), ("H-", "H", 3, 0),
-        ("*", "*", 4, 0),
-        ("*", "*", 5, 0), ("-F", "F", 6, 0), ("-P", "P", 7, 0), ("-L", "L", 8, 0),
-        ("-T", "T", 9, 0), ("-D", "D", 10, 0),
-        ("S-", "S", 0, 1), ("K-", "K", 1, 1), ("W-", "W", 2, 1), ("R-", "R", 3, 1),
-        ("*", "*", 4, 1),
-        ("*", "*", 5, 1), ("-R", "R", 6, 1), ("-B", "B", 7, 1), ("-G", "G", 8, 1),
-        ("-S", "S", 9, 1), ("-Z", "Z", 10, 1),
-        ("A-", "A", 3, _THUMB), ("O-", "O", 4, _THUMB),
-        ("-E", "E", 6, _THUMB), ("-U", "U", 7, _THUMB),
-    )
+    # Two asterisk columns sit together in the middle, so the thumbs tuck against the
+    # outside of that block rather than against a single column.
+    star_left, star_right = _star(4), _star(5)
+    right_thumb = star_right + 1
     keys = tuple(
-        ProfileKey(
-            key=key, label=label,
-            col=col + (gap if col >= 5 else 0),
-            row=row,
+        ProfileKey(key=key, label=label, col=col, row=row)
+        for key, label, col, row in (
+            ("S-", "S", 0, 0), ("T-", "T", 1, 0), ("P-", "P", 2, 0), ("H-", "H", 3, 0),
+            ("S-", "S", 0, 1), ("K-", "K", 1, 1), ("W-", "W", 2, 1), ("R-", "R", 3, 1),
+            ("*", "*", star_left, 0), ("*", "*", star_right, 0),
+            ("*", "*", star_left, 1), ("*", "*", star_right, 1),
+            ("-F", "F", _right(6), 0), ("-P", "P", _right(7), 0),
+            ("-L", "L", _right(8), 0), ("-T", "T", _right(9), 0),
+            ("-D", "D", _right(10), 0),
+            ("-R", "R", _right(6), 1), ("-B", "B", _right(7), 1),
+            ("-G", "G", _right(8), 1), ("-S", "S", _right(9), 1),
+            ("-Z", "Z", _right(10), 1),
+            ("A-", "A", _LEFT_THUMB_START, _THUMB),
+            ("O-", "O", _LEFT_THUMB_START + 1, _THUMB),
+            ("-E", "E", right_thumb, _THUMB), ("-U", "U", right_thumb + 1, _THUMB),
         )
-        for key, label, col, row in rows
     )
     return BoardProfile(
         id="split-ortho",
