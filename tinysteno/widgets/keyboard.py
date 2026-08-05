@@ -1,4 +1,7 @@
-"""The on-screen TinyMod4.
+"""The on-screen steno board.
+
+Draws whatever board profile it is given: key positions, sizes and the gap between banks
+all come from the profile in key-pitch units, so nothing here is specific to one keyboard.
 
 Shows the chord to press, then shows what actually happened. When a key was pressed on the
 wrong side of the board, the two keys involved are joined by an arc so the swap is visible
@@ -11,23 +14,15 @@ import math
 from enum import Enum
 
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import (
-    QColor,
-    QFont,
-    QPainter,
-    QPainterPath,
-    QPen,
-)
+from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QSizePolicy, QWidget
 
 from .. import fingering, theme
-from ..layout import BANK_GAP_AFTER_COL, GRID_COLS, KEYCAPS, KeyCap
+from ..board import BoardProfile, ProfileKey
+from ..layout import QWERTY_HINTS
 
-# Layout constants in "key pitch" units.
-GUTTER = 0.55        # Gap between the left and right banks.
-THUMB_DROP = 0.42    # How far the thumb row sits below the home row.
-KEY_INSET = 0.06     # Padding inside each pitch cell, so keys do not touch.
-CORNER = 0.16        # Corner radius as a fraction of key size.
+KEY_INSET = 0.06   # Padding inside each key's cell, so keys do not touch.
+CORNER = 0.16      # Corner radius as a fraction of key size.
 
 
 class KeyState(Enum):
@@ -41,21 +36,27 @@ class KeyState(Enum):
 
 
 class StenoKeyboard(QWidget):
-    """A painted TinyMod4 that can display a chord and critique an attempt."""
+    """A painted steno board that can display a chord and critique an attempt."""
 
     key_clicked = Signal(str)
 
-    def __init__(self, parent: QWidget | None = None, interactive: bool = False) -> None:
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        interactive: bool = False,
+        profile: BoardProfile | None = None,
+    ) -> None:
         super().__init__(parent)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setMinimumHeight(190)
         self.setMouseTracking(True)
 
         self._interactive = interactive
+        self._profile = profile
         self._expected: set[str] = set()
         self._states: dict[str, KeyState] = {}
         self._swap_arcs: list[tuple[str, str]] = []
-        self._hover: KeyCap | None = None
+        self._hover: ProfileKey | None = None
         self._show_qwerty = False
         self._finger_mode = False
         self._seam_mode = False
@@ -66,6 +67,15 @@ class StenoKeyboard(QWidget):
         self._timer.timeout.connect(self._tick)
 
     # ---- public API ---------------------------------------------------------------
+
+    def set_profile(self, profile: BoardProfile) -> None:
+        self._profile = profile
+        self._hover = None
+        self.update()
+
+    @property
+    def profile(self) -> BoardProfile | None:
+        return self._profile
 
     def show_chord(self, keys) -> None:
         """Light the chord the learner should press."""
@@ -151,51 +161,62 @@ class StenoKeyboard(QWidget):
 
     # ---- geometry -----------------------------------------------------------------
 
+    def _keys(self) -> tuple[ProfileKey, ...]:
+        return self._profile.keys if self._profile else ()
+
     def _unit(self) -> float:
-        total_w = GRID_COLS + GUTTER
-        total_h = 3 + THUMB_DROP
-        return min(self.width() / total_w, self.height() / total_h)
-
-    def _origin(self) -> QPointF:
-        unit = self._unit()
-        board_w = (GRID_COLS + GUTTER) * unit
-        board_h = (3 + THUMB_DROP) * unit
-        return QPointF((self.width() - board_w) / 2, (self.height() - board_h) / 2)
-
-    def _cell(self, cap: KeyCap) -> QRectF:
-        unit = self._unit()
-        origin = self._origin()
-        x = cap.col * unit
-        if cap.col > BANK_GAP_AFTER_COL:
-            x += GUTTER * unit
-        y = cap.row * unit
-        if cap.row == 2:
-            y += THUMB_DROP * unit
-        inset = KEY_INSET * unit
-        return QRectF(
-            origin.x() + x + inset,
-            origin.y() + y + inset,
-            unit - inset * 2,
-            unit - inset * 2,
+        """Pixels per key pitch, sized to fit the profile's extents."""
+        if not self._profile:
+            return 1.0
+        return min(
+            self.width() / max(self._profile.width, 0.001),
+            self.height() / max(self._profile.height, 0.001),
         )
 
-    def _cap_at(self, pos) -> KeyCap | None:
-        for cap in KEYCAPS:
-            if self._cell(cap).contains(pos):
-                return cap
+    def _origin(self) -> QPointF:
+        if not self._profile:
+            return QPointF(0, 0)
+        unit = self._unit()
+        board_w = self._profile.width * unit
+        board_h = self._profile.height * unit
+        return QPointF((self.width() - board_w) / 2, (self.height() - board_h) / 2)
+
+    def _cell(self, key: ProfileKey) -> QRectF:
+        unit = self._unit()
+        origin = self._origin()
+        inset = KEY_INSET * unit
+        return QRectF(
+            origin.x() + key.col * unit + inset,
+            origin.y() + key.row * unit + inset,
+            key.width * unit - inset * 2,
+            key.height * unit - inset * 2,
+        )
+
+    def _point(self, x: float, y: float) -> QPointF:
+        """Convert key-pitch coordinates to widget pixels."""
+        unit = self._unit()
+        origin = self._origin()
+        return QPointF(origin.x() + x * unit, origin.y() + y * unit)
+
+    def _key_at(self, pos) -> ProfileKey | None:
+        for key in self._keys():
+            if self._cell(key).contains(pos):
+                return key
         return None
 
     # ---- events -------------------------------------------------------------------
 
     def mouseMoveEvent(self, event) -> None:
-        cap = self._cap_at(event.position())
-        if cap is not self._hover:
-            self._hover = cap
+        key = self._key_at(event.position())
+        if key is not self._hover:
+            self._hover = key
             self.setCursor(
-                Qt.PointingHandCursor if (cap and self._interactive) else Qt.ArrowCursor
+                Qt.PointingHandCursor if (key and self._interactive) else Qt.ArrowCursor
             )
-            if cap:
-                self.setToolTip(f"{cap.key}  ·  {cap.side} bank")
+            if key:
+                finger = fingering.finger_for_profile_key(key)
+                hint = f"  ·  {finger.label}" if finger else ""
+                self.setToolTip(f"{key.key}{hint}")
             self.update()
 
     def leaveEvent(self, event) -> None:
@@ -203,21 +224,24 @@ class StenoKeyboard(QWidget):
         self.update()
 
     def mousePressEvent(self, event) -> None:
-        cap = self._cap_at(event.position())
-        if cap and self._interactive:
-            self.key_clicked.emit(cap.key)
+        key = self._key_at(event.position())
+        if key and self._interactive:
+            self.key_clicked.emit(key.key)
 
     # ---- painting -----------------------------------------------------------------
 
     def paintEvent(self, event) -> None:
+        if not self._profile:
+            return
+
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
 
         unit = self._unit()
         pulse = self._pulse()
 
-        for cap in KEYCAPS:
-            self._paint_key(painter, cap, unit, pulse)
+        for key in self._keys():
+            self._paint_key(painter, key, unit, pulse)
 
         if self._seam_mode:
             self._paint_seams(painter, unit)
@@ -227,80 +251,21 @@ class StenoKeyboard(QWidget):
 
         painter.end()
 
-    # Where each fingertip rests. The non-thumb fingers sit at the seam between the two
-    # rows (y = 1.0 in grid units) so a single finger can depress both keys of its column.
-    _RESTS: tuple[tuple[str, float, float, float], ...] = (
-        # finger id, centre column, centre row, width in columns
-        ("l-pinky", 0.0, 1.0, 1.0),
-        ("l-ring", 1.0, 1.0, 1.0),
-        ("l-middle", 2.0, 1.0, 1.0),
-        ("l-index", 3.0, 1.0, 1.0),
-        ("star", 4.0, 1.0, 1.0),
-        ("r-index", 5.0, 1.0, 1.0),
-        ("r-middle", 6.0, 1.0, 1.0),
-        ("r-ring", 7.0, 1.0, 1.0),
-        ("r-pinky", 8.5, 1.0, 2.0),
-        # The thumbs have no seam between rows -- their two keys sit side by side, so the
-        # resting spot is the gap between them. Kept narrow so it does not cover the labels.
-        ("l-thumb", 2.5, -1.0, 0.8),
-        ("r-thumb", 6.5, -1.0, 0.8),
-    )
-
-    def _grid_point(self, col: float, row: float, unit: float) -> QPointF:
-        origin = self._origin()
-        x = origin.x() + (col + 0.5) * unit
-        if col > BANK_GAP_AFTER_COL:
-            x += GUTTER * unit
-        if row < 0:  # thumb row, vertically centred on the keycaps
-            y = origin.y() + (2 + THUMB_DROP + 0.5) * unit
-        else:
-            y = origin.y() + row * unit
-        return QPointF(x, y)
-
-    def _paint_seams(self, painter: QPainter, unit: float) -> None:
-        """Draw a fingertip pad at each resting position."""
-        height = unit * 0.20
-        for finger_id, col, row, width in self._RESTS:
-            finger = fingering.FINGERS_BY_ID[finger_id]
-            centre = self._grid_point(col, row, unit)
-            pad = QRectF(
-                centre.x() - width * unit * 0.30,
-                centre.y() - height / 2,
-                width * unit * 0.60,
-                height,
-            )
-            colour = QColor(finger.color)
-
-            if finger.is_shared:
-                # The asterisk has no owning hand, so it gets an outline rather than a pad.
-                colour.setAlphaF(0.75)
-                pen = QPen(colour, max(1.0, unit * 0.030))
-                pen.setStyle(Qt.DashLine)
-                painter.setPen(pen)
-                painter.setBrush(Qt.NoBrush)
-            else:
-                painter.setPen(Qt.NoPen)
-                glow = QColor(colour)
-                glow.setAlphaF(0.22)
-                painter.setBrush(glow)
-                painter.drawRoundedRect(
-                    pad.adjusted(-unit * 0.05, -unit * 0.05, unit * 0.05, unit * 0.05),
-                    height, height,
-                )
-                colour.setAlphaF(0.92)
-                painter.setBrush(colour)
-            painter.drawRoundedRect(pad, height / 2, height / 2)
-
-    def _paint_key(self, painter: QPainter, cap: KeyCap, unit: float, pulse: float) -> None:
-        rect = self._cell(cap)
+    def _paint_key(
+        self, painter: QPainter, key: ProfileKey, unit: float, pulse: float
+    ) -> None:
+        rect = self._cell(key)
         radius = CORNER * unit
-        state = self._states.get(cap.key, KeyState.IDLE)
+        state = self._states.get(key.key, KeyState.IDLE)
 
         # In finger mode the whole board speaks in finger colours rather than bank colours,
         # so a highlighted key matches its row in the legend.
-        base = theme.bank_color(cap.key)
+        base = theme.bank_color(key.key)
         if self._finger_mode:
-            base = fingering.color_for(cap.key) or base
+            finger = fingering.finger_for_profile_key(key)
+            # A key with no standard finger (the number bar) stays neutral rather than
+            # borrowing a colour that would imply an assignment we are not making.
+            base = finger.color if finger is not None else theme.TEXT_FAINT
 
         fill, border, text_color, glow = self._colors_for(state, base, pulse)
 
@@ -316,14 +281,14 @@ class StenoKeyboard(QWidget):
         painter.setBrush(fill)
         painter.drawRoundedRect(rect, radius, radius)
 
-        if cap is self._hover and state is KeyState.IDLE:
+        if key is self._hover and state is KeyState.IDLE:
             painter.setPen(Qt.NoPen)
             painter.setBrush(theme.qcolor(base, 0.12))
             painter.drawRoundedRect(rect, radius, radius)
 
         # Key letter.
         font = QFont(theme.UI_FAMILY.split(",")[0])
-        font.setPixelSize(max(10, int(unit * 0.40)))
+        font.setPixelSize(max(9, int(min(unit, rect.height()) * 0.40)))
         font.setWeight(QFont.DemiBold if state is not KeyState.IDLE else QFont.Medium)
         painter.setFont(font)
         painter.setPen(QColor(text_color))
@@ -331,12 +296,10 @@ class StenoKeyboard(QWidget):
         label_rect = QRectF(rect)
         if self._show_qwerty:
             label_rect.setHeight(rect.height() * 0.68)
-        painter.drawText(label_rect, Qt.AlignCenter, cap.label)
+        painter.drawText(label_rect, Qt.AlignCenter, key.label)
 
         if self._show_qwerty:
-            from ..layout import QWERTY_HINTS
-
-            hints = QWERTY_HINTS.get(cap.key, ())
+            hints = QWERTY_HINTS.get(key.key, ())
             if hints:
                 small = QFont(theme.MONO_FAMILY.split(",")[0])
                 small.setPixelSize(max(7, int(unit * 0.20)))
@@ -412,20 +375,54 @@ class StenoKeyboard(QWidget):
                 radius + spread, radius + spread,
             )
 
+    def _paint_seams(self, painter: QPainter, unit: float) -> None:
+        """Draw a fingertip pad at each resting position, derived from the profile."""
+        height = unit * 0.20
+        for rest in fingering.rest_positions(self._profile):
+            centre = self._point(rest.x, rest.y)
+            pad = QRectF(
+                centre.x() - rest.width * unit * 0.30,
+                centre.y() - height / 2,
+                rest.width * unit * 0.60,
+                height,
+            )
+            colour = QColor(rest.finger.color)
+
+            if rest.finger.is_shared:
+                # The asterisk has no owning hand, so it gets an outline rather than a pad.
+                colour.setAlphaF(0.75)
+                pen = QPen(colour, max(1.0, unit * 0.030))
+                pen.setStyle(Qt.DashLine)
+                painter.setPen(pen)
+                painter.setBrush(Qt.NoBrush)
+            else:
+                painter.setPen(Qt.NoPen)
+                glow = QColor(colour)
+                glow.setAlphaF(0.22)
+                painter.setBrush(glow)
+                painter.drawRoundedRect(
+                    pad.adjusted(-unit * 0.05, -unit * 0.05, unit * 0.05, unit * 0.05),
+                    height, height,
+                )
+                colour.setAlphaF(0.92)
+                painter.setBrush(colour)
+            painter.drawRoundedRect(pad, height / 2, height / 2)
+
     def _paint_swap_arc(
         self, painter: QPainter, from_key: str, to_key: str, unit: float, pulse: float,
     ) -> None:
         """Draw an arc from the key that was pressed to the key that was wanted."""
-        from_caps = [c for c in KEYCAPS if c.key == from_key]
-        to_caps = [c for c in KEYCAPS if c.key == to_key]
-        if not from_caps or not to_caps:
+        from_keys = [k for k in self._keys() if k.key == from_key]
+        to_keys = [k for k in self._keys() if k.key == to_key]
+        if not from_keys or not to_keys:
             return
 
         # With paired keys (both S, both stars) pick the closest pair so the arc is short.
         best = min(
-            ((f, t) for f in from_caps for t in to_caps),
+            ((f, t) for f in from_keys for t in to_keys),
             key=lambda pair: abs(pair[0].col - pair[1].col) + abs(pair[0].row - pair[1].row),
         )
+
         # Run the arc between the top edges of the two keys rather than their centres, so
         # the arrowhead lands on the target key without covering its letter.
         from_cell, to_cell = self._cell(best[0]), self._cell(best[1])
@@ -433,7 +430,8 @@ class StenoKeyboard(QWidget):
         end = QPointF(to_cell.center().x(), to_cell.top() - unit * 0.04)
 
         # Bow the arc upward, clear of the keycaps.
-        lift = unit * (0.55 + 0.30 * abs(best[0].col - best[1].col) / GRID_COLS)
+        spread = abs(best[0].col - best[1].col) / max(self._profile.width, 1.0)
+        lift = unit * (0.55 + 0.30 * spread)
         control = QPointF((start.x() + end.x()) / 2, min(start.y(), end.y()) - lift)
 
         path = QPainterPath(start)

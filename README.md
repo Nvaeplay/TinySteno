@@ -1,15 +1,15 @@
-# TinyMod4 Steno Trainer
+# TinySteno
 
-A Windows 11 practice companion for the TinyMod4. It shows you a word, lights the exact
-chord on an on-screen board, waits for you to press it on the real hardware, and then tells
-you precisely what happened — including when you reached for the wrong side of the board.
+A Windows practice trainer for open-source steno keyboards. It shows you a word, lights the
+exact chord on an on-screen board, reads the stroke straight off your hardware, and tells
+you exactly what happened.
 
 ![Practice screen](shots/12-practice-fingers.png)
 
 ## Running it
 
-Grab `TinyMod4 Steno Trainer.exe` and double-click it. Nothing to install — no Python, no
-Qt, no dependencies. It is a single 48 MB file that starts in about a second and can live
+Grab `TinySteno.exe` and double-click it. Nothing to install — no Python, no Qt, no
+dependencies. It is a single 48 MB file that starts in about a second and can live
 anywhere, including a USB stick.
 
 To run from source instead:
@@ -24,80 +24,82 @@ Dependencies: `PySide6`, `pyserial`.
 py -m pip install PySide6 pyserial
 ```
 
-### Building the exe yourself
-
-```bash
-py -m PyInstaller tinysteno.spec --noconfirm
-```
-
-Output lands in `dist/`. Set `TINYSTENO_ONEDIR=1` first for a one-folder build instead —
-120 MB, but starts in 0.4 s rather than 1.1 s.
-
-The spec excludes about fifty PySide6 modules the app never imports (WebEngine, Qt3D,
-Charts, Multimedia, QML/Quick and friends). That is what keeps it to 48 MB; a default
-PySide6 build of this app is over 150 MB and takes several seconds to start. A check in
-`tests.py` confirms the source really does import nothing but QtCore, QtGui and QtWidgets,
-so the exclude list cannot quietly go stale.
-
-The icon is generated rather than checked in as a binary blob:
-
-```bash
-py tools/make_icon.py
-```
-
 ## Before you practise
 
-1. **The board must be in Serial mode** — the jumper marked `Serial = GeminiPiper`. The
-   jumper is read once at power-up, so changing it needs a full USB replug. The presence of
-   COM5 tells you nothing about which mode the firmware is in; both USB interfaces always
-   enumerate.
-2. **Close Plover.** The serial port is exclusive — Plover and this app cannot both hold
-   COM5. The trainer retries every couple of seconds, so it picks the port up on its own
-   once Plover releases it.
+1. Your board must be sending **Gemini PR** over a serial port. That is the default for
+   QMK steno boards and what Plover recommends, so most open-source keyboards already do.
+   On a TinyMod4 it means the jumper marked `Serial = GeminiPiper`; that jumper is read
+   once at power-up, so changing it needs a full USB replug.
+2. **Close Plover.** The serial port is exclusive. TinySteno retries every couple of
+   seconds and picks the port up on its own once Plover releases it.
 
-If nothing arrives, open **Explore the board** and press a key. Strokes appearing there
-means the link is good.
+If nothing arrives, open **Explore the board** and press a key.
+
+## Boards
+
+TinySteno is not tied to one keyboard. A board profile describes which keys exist and where
+they sit, in key-pitch units, so the gap between banks, the drop to the thumbs and tall keys
+that span two rows are all just coordinates.
+
+| Built-in | Keys | Notes |
+|---|---|---|
+| **TinyMod4** | 24 | Verified against real hardware. Two S switches, two asterisks. |
+| **Standard stenotype** | 23 | The reference layout: tall S and asterisk, plus a number bar. |
+| **Generic split** | 26 | A common DIY shape — a starting point to adjust, not a specific product. |
+
+Only these three ship built in, and that is deliberate. Reconstructing other boards'
+layouts from memory would risk teaching people the wrong positions — the same reason lesson
+outlines are curated rather than guessed. Instead, **Settings → Board → Save a copy I can
+edit** writes the current profile to
+`%LOCALAPPDATA%\TinyStenoTrainer\boards\` as JSON. Adjust the coordinates, change the `id`
+and `name`, restart, and your board appears in the list. A file reusing a built-in `id`
+replaces it, so a layout that is wrong for your hardware can be corrected without waiting
+for a new build.
+
+Profiles are validated on load: unknown steno keys, unsupported protocols and overlapping
+keycaps are all rejected with a message rather than silently drawing something wrong.
+
+When a board lacks a key, lessons needing it are dropped rather than asking you to press
+something you do not have.
+
+## Dictionaries
+
+By default TinySteno reads Plover's own `user.json`, `commands.json` and `main.json` in
+Plover's priority order. **Settings → Dictionaries** lets you point at any Plover-format
+JSON dictionaries instead, in whatever order you want. They are only ever read, never
+written.
 
 ## What it does
 
-**Reads the hardware directly.** The app owns COM5, decodes Gemini PR frames itself, and
-looks strokes up in your own Plover dictionaries. It asserts DTR on open, without which the
-firmware transmits nothing and a working board looks dead.
+**Reads the hardware directly** — decodes Gemini PR frames itself and resolves strokes
+against your dictionaries. It asserts DTR on open, without which the firmware sends nothing
+and a working board looks dead.
 
 **Coaches the left/right mix-up.** Pressing `T-` where `-T` was needed is the dominant
-beginner error coming from QWERTY. The app names it, draws an arc from the key you hit to
+beginner error coming from QWERTY. TinySteno names it, draws an arc from the key you hit to
 the key you wanted, and tracks it separately in your stats.
 
 ![Side swap feedback](shots/09-practice-side-swap.png)
 
 The rule is deliberately strict: a swap is only reported when it actually explains the
 mistake. Two chords sharing a letter across the banks by coincidence — `TKOG` against `KAT`
-— is reported as a plain wrong chord, not as a hand mix-up.
+— is reported as a plain wrong chord, not a hand mix-up.
 
-**Teaches where your fingers go.** Each finger owns one vertical column — that part of
-stenotype fingering is standard across every major theory. The part beginners miss is that
-your fingers rest in the *seam between the two rows*, not centred on a key, because a great
-many sounds need both keys of a column held at once. Fourteen chords in the built-in
+**Teaches where your fingers go.** Each finger owns one vertical column. The part beginners
+miss is that your fingers rest in the *seam between the two rows*, not centred on a key,
+because many sounds need both keys of a column held at once. Fourteen chords in the built-in
 lessons require it: `TKOG` (dog) is impossible unless your left ring finger can hold T and K
 together.
 
 ![Finger positions](shots/02-finger-positions.png)
 
-The **Finger positions** screen colours the board by finger — mirrored, so both ring fingers
-are the same colour — marks every resting spot, and lets you click a finger to light its
-keys. During practice, the chord on screen is read out as "left ring T+K together · left
-thumb O · right ring G", and the double-press coaching appears whenever the full hint is
-showing.
-
-Where there genuinely isn't a standard, the guide says so: which hand takes the asterisk,
-how far the right pinky stretches for `-D` and `-Z`, and the fact that a TinyMod's flat
-unsculpted keys make the resting position harder to hold than a real stenotype's contoured
-ones.
+Resting positions are derived from each finger's key centroids rather than hand-placed, so
+an unusual board gets sensible marks automatically.
 
 **Teaches verified outlines.** `main.json` contains a lot of misstroke-forgiveness entries,
 so ranking by length alone would happily teach `OB` for "on" instead of `OPB`. Lesson
-outlines are curated and every one is re-checked against your dictionary at startup;
-anything that does not write what it claims is dropped rather than silently taught.
+outlines are curated and re-checked against your dictionary at startup; anything that does
+not write what it claims is dropped rather than silently taught.
 
 **Accepts alternate outlines.** Any outline that writes the target word counts as correct.
 The drill still names the one it was teaching so you see both.
@@ -127,33 +129,28 @@ your dictionary listed rather than silently skipped.
   double-press chords that depend on it.
 - **Explore the board** — click keys to build a chord and see what it writes, with the
   finger reading underneath. Doubles as the connection test.
-- **Progress** — accuracy, solid items, and a breakdown of *where* the mistakes are, with
-  hand mix-ups called out separately. Feeds the review deck.
-- **Settings** — port selection, hint mode, session length, and a QWERTY fallback so you
-  can practise without the device attached.
-
-## No device to hand?
-
-Turn on **Accept QWERTY input** in Settings. Keys map by position, not by letter, so
-`s`+`c`+`p` writes "cat". The board shows the QWERTY equivalents when this is on.
+- **Progress** — accuracy, solid items, and a breakdown of where the mistakes actually are,
+  with hand mix-ups called out separately. Feeds the review deck.
+- **Settings** — board, connection, dictionaries, hint mode, session length, and a QWERTY
+  fallback for practising without the device attached.
 
 ## Where things live
 
 | | |
 |---|---|
 | Your progress | `%LOCALAPPDATA%\TinyStenoTrainer\profile.json` |
-| Dictionaries read | `%LOCALAPPDATA%\plover\plover\{user,commands,main}.json` |
-
-Dictionaries are only ever read, never written.
+| Your board profiles | `%LOCALAPPDATA%\TinyStenoTrainer\boards\*.json` |
+| Dictionaries read | Plover's, or whatever you point it at |
 
 ## Layout
 
 ```
 run.py                  entry point
-tests.py                headless checks — protocol, analysis, session, storage
+tests.py                headless checks — protocol, boards, analysis, session, storage
 smoke_gui.py            builds the window, drives a simulated session, renders PNGs
 tinysteno/
   protocol.py           Gemini PR decoding, RTFCRE formatting and parsing
+  board.py              board profiles, built-ins, validation and the user registry
   machine.py            serial thread, DTR handling, reconnection
   dictionary.py         Plover dictionary loading and reverse lookup
   analysis.py           comparing what you pressed against what was asked
@@ -161,9 +158,9 @@ tinysteno/
   lessons.py            curated lesson content plus startup validation
   session.py            the drill loop, hint fading, spaced repetition
   storage.py            settings, per-item stats, session history
-  layout.py             the 24 physical switches and their positions
+  layout.py             QWERTY equivalents for the keyboard fallback
   theme.py              palette and stylesheet
-  widgets/keyboard.py   the painted TinyMod4
+  widgets/keyboard.py   the painted board, rendered from a profile
   screens/              one module per screen
 ```
 
@@ -174,23 +171,49 @@ py tests.py
 ```
 
 Covers the hardware frame captures, hyphen and number-bar conventions, frame
-resynchronisation, dictionary lookups, every error verdict, lesson validation, the drill
-loop including multi-stroke and undo, hint fading, finger assignment and double-press
-detection, and profile round-tripping. Every worked example in the finger guide is checked
-against the real dictionary, so the guide cannot drift from what the app actually teaches.
+resynchronisation, board profile validation and round-tripping, dictionary lookups, every
+error verdict, lesson validation, the drill loop including multi-stroke and undo, hint
+fading, finger assignment and double-press detection, and profile round-tripping.
+
+Two guards are worth calling out. One asserts the TinyMod4 profile's geometry is identical
+to the hardcoded layout that predated profiles, so generalising the renderer cannot quietly
+move a key. Another asserts the derived finger-rest positions match the old hand-placed
+ones exactly.
 
 ```bash
 py smoke_gui.py shots
 ```
 
-Builds the real window, injects strokes exactly as the serial thread would, walks a full
-session, and writes a PNG of every screen.
+Builds the real window, injects strokes exactly as the serial thread would, switches boards,
+walks a full session, and writes a PNG of every screen.
+
+### Building the exe
+
+```bash
+py -m PyInstaller tinysteno.spec --noconfirm
+```
+
+Output lands in `dist/`. Set `TINYSTENO_ONEDIR=1` first for a one-folder build instead —
+120 MB, but starts in 0.4 s rather than 1.1 s.
+
+The spec excludes about fifty PySide6 modules the app never imports. That is what keeps it
+to 48 MB; a default PySide6 build of this app is over 150 MB. A check in `tests.py` confirms
+the source really does import nothing but QtCore, QtGui and QtWidgets, so the exclude list
+cannot quietly go stale.
+
+The icon is generated rather than checked in as a binary blob:
+
+```bash
+py tools/make_icon.py
+```
 
 ## Known limitation
 
-The live serial path could not be exercised against the physical board — no TinyMod4 was
-attached while this was built. The protocol layer is verified against the recorded hardware
-captures and round-trips all 147,424 dictionary outlines, and the connection logic was
-tested for its retry and error behaviour with no device present, but the first real stroke
-from the board is still unproven. If nothing shows up in **Explore the board**, check the
-jumper and that Plover has released the port.
+Only Gemini PR is implemented. It is the default for QMK steno boards and what Plover
+recommends, so it covers most open-source keyboards, but a board speaking TX Bolt or Plover
+HID will not connect. `protocol` is a field on every board profile and `SUPPORTED_PROTOCOLS`
+gates it, so adding one is a contained change rather than a rewrite.
+
+The live serial read has been exercised against a TinyMod4 for port opening and DTR only.
+The protocol layer is verified against recorded hardware captures and round-trips all
+147,424 dictionary outlines.

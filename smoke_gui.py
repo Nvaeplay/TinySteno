@@ -1,6 +1,6 @@
 """Build the window, drive a simulated session, and render each screen to PNG.
 
-Runs without a TinyMod4 attached: strokes are injected exactly as the serial thread would
+Runs without a board attached: strokes are injected exactly as the serial thread would
 deliver them, so this exercises the real drill path rather than a stub.
 """
 
@@ -88,6 +88,21 @@ shot("04-explore")
 
 window._navigate("progress")
 shot("06-progress")
+
+# ---- switch boards and confirm everything follows --------------------------------------
+print("Switching boards…")
+for board_id in ("standard23", "split-ortho"):
+    window._on_settings_changed({**profile.settings, "board": board_id})
+    settle()
+    window._navigate("fingers")
+    settle()
+    print(f"  {board_id}: {len(window.board.keys)} keys, "
+          f"{len(window.lessons)} lessons, "
+          f"{sum(len(l.items) for l in window.lessons)} prompts still drillable")
+    shot(f"13-board-{board_id}")
+window._on_settings_changed({**profile.settings, "board": "tinymod4"})
+settle()
+print(f"  back to tinymod4: {sum(len(l.items) for l in window.lessons)} prompts")
 
 window._navigate("settings")
 shot("07-settings")

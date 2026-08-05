@@ -36,8 +36,9 @@ class PracticeScreen(QWidget):
     session_finished = Signal(dict)
     exit_requested = Signal()
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, profile=None) -> None:
         super().__init__(parent)
+        self._profile = profile
         self._session: Session | None = None
         self._locked = False
         self._keyboard_fallback = False
@@ -98,7 +99,7 @@ class PracticeScreen(QWidget):
         root.addWidget(prompt_card)
 
         # Keyboard
-        self.keyboard = StenoKeyboard()
+        self.keyboard = StenoKeyboard(profile=self._profile)
         root.addWidget(self.keyboard, stretch=1)
 
         # Which finger does what for the chord on screen.
@@ -157,6 +158,9 @@ class PracticeScreen(QWidget):
     def set_keyboard_fallback(self, enabled: bool) -> None:
         self._keyboard_fallback = enabled
         self.keyboard.set_qwerty_labels(enabled)
+
+    def set_profile(self, profile) -> None:
+        self.keyboard.set_profile(profile)
 
     def set_finger_guidance(self, enabled: bool) -> None:
         self._show_finger_guidance = enabled
@@ -244,7 +248,7 @@ class PracticeScreen(QWidget):
         self.verdict_label.setText("Ready when you are")
         self.verdict_label.setStyleSheet(f"color: {theme.TEXT_DIM};")
         self.detail_label.setText(
-            "Press the lit chord on your TinyMod4. All keys at once — press order does not matter."
+            "Press the lit chord on your board. All keys at once — press order does not matter."
         )
         self.compare_label.setText("")
 

@@ -1,10 +1,10 @@
-"""TinyMod4 Steno Trainer."""
+"""TinySteno — a practice trainer for open-source steno keyboards."""
 
 import sys
 from pathlib import Path
 
-__version__ = "1.1.0"
-APP_NAME = "TinyMod4 Steno Trainer"
+__version__ = "1.2.0"
+APP_NAME = "TinySteno"
 
 
 def resource_path(relative: str) -> Path:

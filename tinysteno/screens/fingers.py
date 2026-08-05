@@ -16,7 +16,6 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QFrame,
-    QGridLayout,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -26,6 +25,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import fingering, theme
+from ..protocol import parse_stroke
 from ..widgets.common import Card, faint, heading
 from ..widgets.keyboard import StenoKeyboard
 
@@ -89,9 +89,10 @@ class FingerRow(QFrame):
 class FingersScreen(QWidget):
     """Where each finger goes, and how to hold your hands."""
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, profile=None) -> None:
         super().__init__(parent)
         self._selected: str | None = None
+        self._profile = profile
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -116,11 +117,15 @@ class FingersScreen(QWidget):
         )
 
         # ---- the board ----------------------------------------------------------
-        self.keyboard = StenoKeyboard()
+        self.keyboard = StenoKeyboard(profile=profile)
         self.keyboard.setMinimumHeight(270)
         self.keyboard.set_finger_colors(True)
         self.keyboard.set_seam_hints(True)
         layout.addWidget(self.keyboard)
+
+        self.board_label = faint("")
+        self.board_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.board_label)
 
         controls = QHBoxLayout()
         controls.setSpacing(10)
@@ -161,10 +166,15 @@ class FingersScreen(QWidget):
             faint("Four words from the built-in lessons that are impossible without it:")
         )
 
-        grid = QGridLayout()
-        grid.setSpacing(9)
-        grid.setColumnStretch(3, 1)
-        for row, (word, outline, action, why) in enumerate(DOUBLE_PRESS_EXAMPLES):
+        # Each example is its own widget so it can be hidden on a board that lacks the
+        # keys the chord needs.
+        self._example_rows: list[tuple[QWidget, set[str]]] = []
+        for word, outline, action, why in DOUBLE_PRESS_EXAMPLES:
+            row_widget = QWidget()
+            row = QHBoxLayout(row_widget)
+            row.setContentsMargins(0, 0, 0, 0)
+            row.setSpacing(9)
+
             word_label = QLabel(word)
             word_label.setStyleSheet("font-weight: 600;")
             word_label.setFixedWidth(56)
@@ -178,11 +188,15 @@ class FingersScreen(QWidget):
             action_label.setStyleSheet(f"color: {theme.TEXT_DIM};")
             action_label.setFixedWidth(196)
 
-            grid.addWidget(word_label, row, 0)
-            grid.addWidget(outline_label, row, 1)
-            grid.addWidget(action_label, row, 2)
-            grid.addWidget(faint(why), row, 3)
-        examples_card.body.addLayout(grid)
+            row.addWidget(word_label)
+            row.addWidget(outline_label)
+            row.addWidget(action_label)
+            row.addWidget(faint(why), stretch=1)
+
+            examples_card.body.addWidget(row_widget)
+            self._example_rows.append((row_widget, parse_stroke(outline)))
+
+        self.examples_card = examples_card
         layout.addWidget(examples_card)
 
         # ---- the legend ----------------------------------------------------------
@@ -223,9 +237,9 @@ class FingersScreen(QWidget):
             "•  <b>The right pinky.</b> It is the only finger covering two columns "
             "(T/S and D/Z). Whether you stretch to reach D and Z or shift the whole hand "
             "depends on your hand size.<br><br>"
-            "•  <b>This board in particular.</b> A production stenotype has sculpted, "
-            "lightly-sprung keys that guide your fingers into the seam. A TinyMod's keys "
-            "are flat and separate, so the resting position takes more conscious effort to "
+            "•  <b>Hobbyist boards in particular.</b> A production stenotype has sculpted, "
+            "lightly-sprung keys that guide your fingers into the seam. Most DIY boards use "
+            "flat, separate keys, so the resting position takes more conscious effort to "
             "hold. Expect that to feel awkward before it feels natural."
         )
         caveats_body.setWordWrap(True)
@@ -234,6 +248,22 @@ class FingersScreen(QWidget):
         layout.addWidget(caveats)
 
         layout.addStretch()
+
+    # ---- board ----------------------------------------------------------------------
+
+    def set_profile(self, profile) -> None:
+        self._profile = profile
+        self.keyboard.set_profile(profile)
+        self._clear_highlight()
+        self.board_label.setText(f"Showing the {profile.name} layout")
+
+        # A board without a key cannot demonstrate the chord that needs it.
+        shown = 0
+        for row_widget, chord in self._example_rows:
+            supported = profile.supports(chord)
+            row_widget.setVisible(supported)
+            shown += supported
+        self.examples_card.setVisible(shown > 0)
 
     # ---- interaction --------------------------------------------------------------
 

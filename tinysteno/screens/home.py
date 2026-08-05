@@ -120,7 +120,7 @@ class HomeScreen(QWidget):
         self._layout.addWidget(heading("Practice"))
         self._layout.addWidget(
             faint("Pick a lesson. Each one shows the chord, waits for you to press it on the "
-                  "TinyMod4, and tells you exactly what happened.")
+                  "board, and tells you exactly what happened.")
         )
 
         grid_host = QWidget()

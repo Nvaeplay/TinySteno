@@ -1,4 +1,4 @@
-# PyInstaller build spec for the TinyMod4 Steno Trainer.
+# PyInstaller build spec for TinySteno.
 #
 #   py -m PyInstaller tinysteno.spec --noconfirm     -> one 48 MB exe, ~1.1 s cold start
 #   set TINYSTENO_ONEDIR=1 && py -m PyInstaller tinysteno.spec --noconfirm
@@ -60,7 +60,7 @@ a = Analysis(
 pyz = PYZ(a.pure)
 
 exe_kwargs = dict(
-    name="TinyMod4 Steno Trainer",
+    name="TinySteno",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -86,5 +86,5 @@ else:
     exe = EXE(pyz, a.scripts, [], exclude_binaries=True, **exe_kwargs)
     coll = COLLECT(
         exe, a.binaries, a.datas,
-        strip=False, upx=False, name="TinyMod4 Steno Trainer",
+        strip=False, upx=False, name="TinySteno",
     )

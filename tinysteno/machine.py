@@ -1,4 +1,4 @@
-"""Reading Gemini PR strokes straight off the TinyMod4's serial port.
+"""Reading Gemini PR strokes straight off a steno board's serial port.
 
 Two hard-won details from CLAUDE.md are load-bearing here:
 
@@ -19,9 +19,12 @@ from PySide6.QtCore import QObject, QThread, Signal
 
 from .protocol import FrameReader, decode_frame, decode_frame_physical
 
-# The TinyMod4 enumerates as a composite device; MI_00 is the CDC serial interface.
-TINYMOD_VID = 0x239A
-TINYMOD_PID = 0x800E
+# USB IDs of boards we can name on sight, so the port picker can point at the likely one.
+# An unlisted board still works -- it just shows up as a plain serial port.
+KNOWN_BOARDS: dict[tuple[int, int], str] = {
+    # The TinyMod4 enumerates as a composite device; MI_00 is the CDC serial interface.
+    (0x239A, 0x800E): "TinyMod4",
+}
 
 BAUDRATE = 9600
 READ_TIMEOUT = 0.2
@@ -36,11 +39,11 @@ class State:
     ERROR = "error"
 
 
-def find_tinymod_ports() -> list[str]:
-    """Serial ports whose USB IDs match the TinyMod4, most likely first."""
+def find_board_ports() -> list[str]:
+    """Serial ports, with recognised steno boards first."""
     matches, others = [], []
     for port in list_ports.comports():
-        if port.vid == TINYMOD_VID and port.pid == TINYMOD_PID:
+        if (port.vid, port.pid) in KNOWN_BOARDS:
             matches.append(port.device)
         else:
             others.append(port.device)
@@ -52,8 +55,9 @@ def describe_ports() -> list[tuple[str, str]]:
     result = []
     for port in list_ports.comports():
         label = port.description or "Serial port"
-        if port.vid == TINYMOD_VID and port.pid == TINYMOD_PID:
-            label = f"TinyMod4 — {label}"
+        known = KNOWN_BOARDS.get((port.vid, port.pid))
+        if known:
+            label = f"{known} — {label}"
         result.append((port.device, label))
     return result
 
@@ -197,7 +201,7 @@ class _SerialWorker(QObject):
             elif "could not open" in text or "not found" in text or "filenotfound" in text:
                 self.status_changed.emit(
                     State.ERROR,
-                    f"{self._port_name} not found — check the TinyMod4 is plugged in.",
+                    f"{self._port_name} not found — check your board is plugged in.",
                 )
             else:
                 self.status_changed.emit(State.ERROR, _clean(exc))

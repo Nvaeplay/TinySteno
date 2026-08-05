@@ -1,8 +1,8 @@
 # Windows version resource, so the built exe has proper Details in its Properties dialog.
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(1, 1, 0, 0),
-    prodvers=(1, 1, 0, 0),
+    filevers=(1, 2, 0, 0),
+    prodvers=(1, 2, 0, 0),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -16,12 +16,12 @@ VSVersionInfo(
         '040904B0',
         [
           StringStruct('CompanyName', 'Nvaeplay'),
-          StringStruct('FileDescription', 'TinyMod4 Steno Trainer'),
-          StringStruct('FileVersion', '1.1.0'),
-          StringStruct('InternalName', 'TinyMod4 Steno Trainer'),
-          StringStruct('OriginalFilename', 'TinyMod4 Steno Trainer.exe'),
-          StringStruct('ProductName', 'TinyMod4 Steno Trainer'),
-          StringStruct('ProductVersion', '1.1.0'),
+          StringStruct('FileDescription', 'TinySteno'),
+          StringStruct('FileVersion', '1.2.0'),
+          StringStruct('InternalName', 'TinySteno'),
+          StringStruct('OriginalFilename', 'TinySteno.exe'),
+          StringStruct('ProductName', 'TinySteno'),
+          StringStruct('ProductVersion', '1.2.0'),
           StringStruct('LegalCopyright', 'Released under the MIT licence.'),
         ],
       )

@@ -4,19 +4,24 @@ from __future__ import annotations
 
 import time
 
-from PySide6.QtCore import Qt, QTimer
+from pathlib import Path
+
+from PySide6.QtCore import Qt, QTimer, QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QButtonGroup,
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMessageBox,
     QPushButton,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 
-from . import theme
+from . import APP_NAME, theme
+from .board import BOARDS_DIR, BoardRegistry
 from .dictionary import StenoDictionary
 from .lessons import LessonItem, sentence_lesson, validate_lessons
 from .machine import State, StenoMachine
@@ -49,16 +54,20 @@ _NAV = [
 class MainWindow(QMainWindow):
     def __init__(self, dictionary: StenoDictionary, profile: Profile) -> None:
         super().__init__()
-        self.setWindowTitle("TinyMod4 Steno Trainer")
+        self.setWindowTitle(APP_NAME)
         self.resize(1120, 820)
         self.setMinimumSize(880, 700)
 
         self.dictionary = dictionary
         self.profile = profile
-        self.lessons, self.lesson_warnings = validate_lessons(dictionary)
-        self.lessons.append(sentence_lesson(dictionary))
-        self._lessons_by_key = {lesson.key: lesson for lesson in self.lessons}
+        self.boards = BoardRegistry.load()
+        self.board = self.boards.resolve(profile.settings.get("board"))
         self._last_session: tuple[list[LessonItem], str, str] | None = None
+
+        self.lessons: list = []
+        self.lesson_warnings: list[str] = []
+        self._lessons_by_key: dict = {}
+        self._rebuild_lessons()
 
         self._build()
 
@@ -67,6 +76,7 @@ class MainWindow(QMainWindow):
         self.machine.status_changed.connect(self._on_status)
 
         self._apply_settings()
+        self.fingers.set_profile(self.board)
         if profile.settings.get("auto_connect", True):
             QTimer.singleShot(150, self.machine.start)
 
@@ -89,17 +99,17 @@ class MainWindow(QMainWindow):
         self.home = HomeScreen()
         self.home.lesson_selected.connect(self._start_lesson)
 
-        self.practice = PracticeScreen()
+        self.practice = PracticeScreen(profile=self.board)
         self.practice.session_finished.connect(self._on_session_finished)
         self.practice.exit_requested.connect(self._show_home)
 
-        self.fingers = FingersScreen()
+        self.fingers = FingersScreen(profile=self.board)
 
         self.custom = CustomTextScreen()
         self.custom.set_dictionary(self.dictionary)
         self.custom.start_requested.connect(self._start_custom)
 
-        self.explore = ExploreScreen()
+        self.explore = ExploreScreen(profile=self.board)
         self.explore.set_dictionary(self.dictionary)
 
         self.progress = ProgressScreen()
@@ -107,9 +117,12 @@ class MainWindow(QMainWindow):
 
         self.settings = SettingsScreen()
         self.settings.load(self.profile.settings)
+        self.settings.set_boards(self.boards, self.board.id)
         self.settings.set_dictionary_info(self.dictionary, self.lesson_warnings)
         self.settings.settings_changed.connect(self._on_settings_changed)
         self.settings.reconnect_requested.connect(self._reconnect)
+        self.settings.export_requested.connect(self._export_board)
+        self.settings.open_boards_requested.connect(self._open_boards_folder)
 
         self.summary = SummaryScreen()
         self.summary.home_requested.connect(self._show_home)
@@ -131,7 +144,7 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 14)
         layout.setSpacing(0)
 
-        title = QLabel("TinyMod4")
+        title = QLabel(APP_NAME)
         title.setObjectName("SidebarTitle")
         subtitle = QLabel("Steno Trainer")
         subtitle.setObjectName("SidebarSubtitle")
@@ -161,6 +174,70 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._sidebar_status)
 
         return sidebar
+
+    # ---- lessons and dictionary ----------------------------------------------------
+
+    def _rebuild_lessons(self) -> None:
+        """Revalidate lessons against the current dictionary and board.
+
+        Two filters apply. An outline has to be in the dictionary and write what it claims,
+        and the selected board has to physically have the keys the chord needs -- there is
+        no point drilling -Z on a board without a -Z key.
+        """
+        lessons, warnings = validate_lessons(self.dictionary)
+        lessons.append(sentence_lesson(self.dictionary))
+
+        supported = []
+        for lesson in lessons:
+            keeps = [
+                item for item in lesson.items
+                if all(self.board.supports(stroke) for stroke in item.strokes)
+            ]
+            dropped = len(lesson.items) - len(keeps)
+            if dropped:
+                warnings.append(
+                    f"{lesson.key}: {dropped} item(s) need keys the {self.board.name} "
+                    f"does not have"
+                )
+            lesson.items = keeps
+            supported.append(lesson)
+
+        self.lessons = supported
+        self.lesson_warnings = warnings
+        self._lessons_by_key = {lesson.key: lesson for lesson in self.lessons}
+
+    def _reload_dictionary(self) -> None:
+        paths = [Path(p) for p in self.profile.settings.get("dictionary_paths") or []]
+        self.dictionary = StenoDictionary.load(paths or None)
+        self.custom.set_dictionary(self.dictionary)
+        self.explore.set_dictionary(self.dictionary)
+        self._rebuild_lessons()
+        self.settings.set_dictionary_info(self.dictionary, self.lesson_warnings)
+
+    def _apply_board(self) -> None:
+        for screen in (self.practice, self.explore, self.fingers):
+            screen.set_profile(self.board)
+        self._rebuild_lessons()
+        self.settings.set_dictionary_info(self.dictionary, self.lesson_warnings)
+
+    def _export_board(self) -> None:
+        try:
+            path = self.board.export()
+        except OSError as exc:
+            QMessageBox.warning(self, "Could not save", str(exc))
+            return
+        QMessageBox.information(
+            self, "Board saved",
+            f"Saved a copy of {self.board.name} to:\n\n{path}\n\n"
+            f"Edit the coordinates to match your own hardware, change the \"id\" and "
+            f"\"name\", then restart to pick it up.",
+        )
+        self.boards = BoardRegistry.load()
+        self.settings.set_boards(self.boards, self.board.id)
+
+    def _open_boards_folder(self) -> None:
+        BOARDS_DIR.mkdir(parents=True, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(BOARDS_DIR)))
 
     # ---- navigation ---------------------------------------------------------------
 
@@ -293,10 +370,23 @@ class MainWindow(QMainWindow):
     # ---- settings -----------------------------------------------------------------
 
     def _on_settings_changed(self, values: dict) -> None:
-        port_changed = values.get("port") and values["port"] != self.profile.settings.get("port")
-        self.profile.settings.update(values)
+        settings = self.profile.settings
+        port_changed = values.get("port") and values["port"] != settings.get("port")
+        board_changed = values.get("board") and values["board"] != settings.get("board")
+        dictionaries_changed = (
+            values.get("dictionary_paths") != settings.get("dictionary_paths")
+        )
+
+        settings.update(values)
         self.profile.save()
         self._apply_settings()
+
+        if board_changed:
+            self.board = self.boards.resolve(values["board"])
+            self._apply_board()
+            self.settings.set_boards(self.boards, self.board.id)
+        if dictionaries_changed:
+            self._reload_dictionary()
         if port_changed:
             self.machine.start(values["port"])
 

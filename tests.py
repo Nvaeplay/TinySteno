@@ -199,18 +199,91 @@ check("once solid, no hint at all", not fade.hint_level().shows_chord)
 fade.prompt.errors = 1
 check("an error brings the full hint back", fade.hint_level().shows_outline)
 
+section("Board profiles")
+from tinysteno import board as board_module
+from tinysteno.board import BUILTIN_PROFILES, BoardProfile, BoardRegistry
+
+for _profile in BUILTIN_PROFILES:
+    problems = board_module.validate(_profile)
+    check(f"{_profile.id} is a valid profile", not problems, "; ".join(problems[:2]))
+    check(f"{_profile.id} declares a supported protocol",
+          _profile.protocol in board_module.SUPPORTED_PROTOCOLS)
+
+TINYMOD = board_module.BUILTIN_PROFILES[0]
+check("tinymod4 is the default board", board_module.DEFAULT_PROFILE_ID == TINYMOD.id)
+check("tinymod4 has 24 switches", len(TINYMOD.keys) == 24, str(len(TINYMOD.keys)))
+check("tinymod4 exposes 22 distinct steno keys",
+      len(TINYMOD.steno_keys) == 22, str(len(TINYMOD.steno_keys)))
+check("both S switches report S-", len(TINYMOD.keys_for("S-")) == 2)
+check("both star switches report *", len(TINYMOD.keys_for("*")) == 2)
+check("tinymod4 extents are unchanged",
+      abs(TINYMOD.width - 10.55) < 1e-9 and abs(TINYMOD.height - 3.42) < 1e-9,
+      f"{TINYMOD.width} x {TINYMOD.height}")
+
+# The geometry the renderer used before profiles existed, reproduced from the old
+# constants. A regression here means the TinyMod4 view has silently shifted.
+_OLD_GUTTER, _OLD_THUMB_DROP = 0.55, 0.42
+_OLD_LAYOUT = {
+    ("S-", "S1-"): (0, 0), ("T-", "T-"): (1, 0), ("P-", "P-"): (2, 0),
+    ("H-", "H-"): (3, 0), ("*", "*1"): (4, 0),
+    ("-F", "-F"): (5, 0), ("-P", "-P"): (6, 0), ("-L", "-L"): (7, 0),
+    ("-T", "-T"): (8, 0), ("-D", "-D"): (9, 0),
+    ("S-", "S2-"): (0, 1), ("K-", "K-"): (1, 1), ("W-", "W-"): (2, 1),
+    ("R-", "R-"): (3, 1), ("*", "*3"): (4, 1),
+    ("-R", "-R"): (5, 1), ("-B", "-B"): (6, 1), ("-G", "-G"): (7, 1),
+    ("-S", "-S"): (8, 1), ("-Z", "-Z"): (9, 1),
+    ("A-", "A-"): (2, 2), ("O-", "O-"): (3, 2),
+    ("-E", "-E"): (6, 2), ("-U", "-U"): (7, 2),
+}
+_expected_layout = {
+    key: (col + (_OLD_GUTTER if col > 4 else 0), row + (_OLD_THUMB_DROP if row == 2 else 0))
+    for key, (col, row) in _OLD_LAYOUT.items()
+}
+_actual_layout = {(k.key, k.switch): (k.col, k.row) for k in TINYMOD.keys}
+check("tinymod4 geometry matches the pre-profile layout exactly",
+      _actual_layout == _expected_layout,
+      str(sorted(set(_expected_layout.items()) ^ set(_actual_layout.items()))[:2]))
+
+check("a board reports what it can write", TINYMOD.supports(parse_stroke("KAT")))
+_no_z = BoardProfile(id="t", name="t", keys=tuple(
+    k for k in TINYMOD.keys if k.key != "-Z"))
+check("a board without -Z says so", not _no_z.supports({"-Z"}))
+check("...but still writes chords it has", _no_z.supports(parse_stroke("KAT")))
+
+_round = BoardProfile.from_dict(TINYMOD.to_dict())
+check("a profile round-trips through JSON",
+      [(k.key, k.col, k.row, k.width, k.height) for k in _round.keys]
+      == [(k.key, k.col, k.row, k.width, k.height) for k in TINYMOD.keys])
+
+_registry = BoardRegistry.load()
+check("the registry loads every built-in", len(_registry) >= len(BUILTIN_PROFILES))
+check("an unknown id falls back to the default", _registry.resolve("nope").id == TINYMOD.id)
+check("no id is used twice",
+      len({p.id for p in _registry}) == len(list(_registry)))
+
+section("Board profiles — overlap detection catches typos")
+_broken = BoardProfile(id="x", name="x", keys=(
+    board_module.ProfileKey("S-", "S", 0, 0),
+    board_module.ProfileKey("T-", "T", 0.5, 0),
+))
+check("overlapping keys are rejected",
+      any("overlap" in problem for problem in board_module.validate(_broken)))
+_bad_key = BoardProfile(id="x", name="x", keys=(
+    board_module.ProfileKey("Q-", "Q", 0, 0),
+))
+check("a non-steno key is rejected",
+      any("not a steno key" in problem for problem in board_module.validate(_bad_key)))
+
 section("Fingering — every key has an owner")
 from tinysteno import fingering
-from tinysteno.layout import KEYCAPS
 
-all_keys = {cap.key for cap in KEYCAPS}
-unassigned = [key for key in all_keys if fingering.finger_for(key) is None]
+unassigned = [key for key in TINYMOD.steno_keys if fingering.finger_for(key) is None]
 check("every key on the board is assigned to a finger", not unassigned, str(unassigned))
 check("no key is claimed by two fingers",
       len({k for f in fingering.FINGERS for k in f.keys}) ==
       sum(len(f.keys) for f in fingering.FINGERS))
 check("both S switches share one finger",
-      len({fingering.finger_for(c.key).id for c in KEYCAPS if c.key == "S-"}) == 1)
+      len({fingering.finger_for(k.key).id for k in TINYMOD.keys if k.key == "S-"}) == 1)
 check("the right pinky covers the outer two columns",
       set(fingering.FINGERS_BY_ID["r-pinky"].keys) == {"-T", "-S", "-D", "-Z"})
 check("the asterisk is not tied to one hand",
@@ -245,6 +318,50 @@ check("no double-press line when none is needed",
       fingering.describe_double_presses(parse_stroke("KAT")) == "")
 check("double-press coaching mentions simultaneity",
       "same time" in fingering.describe_double_presses(parse_stroke("TKOG")))
+
+section("Fingering — rest positions are derived, not hand-placed")
+
+# The positions the widget used before profiles existed, from its _RESTS table run through
+# the old _grid_point(). Deriving them from key centroids must reproduce these exactly.
+_OLD_RESTS = (
+    ("l-pinky", 0.0, 1.0, 1.0), ("l-ring", 1.0, 1.0, 1.0), ("l-middle", 2.0, 1.0, 1.0),
+    ("l-index", 3.0, 1.0, 1.0), ("star", 4.0, 1.0, 1.0), ("r-index", 5.0, 1.0, 1.0),
+    ("r-middle", 6.0, 1.0, 1.0), ("r-ring", 7.0, 1.0, 1.0), ("r-pinky", 8.5, 1.0, 2.0),
+    ("l-thumb", 2.5, -1.0, 0.8), ("r-thumb", 6.5, -1.0, 0.8),
+)
+
+
+def _old_point(col, row):
+    x = col + 0.5 + (_OLD_GUTTER if col > 4 else 0)
+    y = (2 + _OLD_THUMB_DROP + 0.5) if row < 0 else row
+    return x, y
+
+
+_expected_rests = {
+    fid: (*_old_point(col, row), width) for fid, col, row, width in _OLD_RESTS
+}
+_derived = {
+    rest.finger.id: (rest.x, rest.y, rest.width)
+    for rest in fingering.rest_positions(TINYMOD)
+}
+check("every finger gets a resting position", set(_derived) == set(_expected_rests),
+      str(set(_expected_rests) ^ set(_derived)))
+_mismatched = [
+    fid for fid, expected in _expected_rests.items()
+    if fid in _derived and any(abs(a - b) > 1e-9 for a, b in zip(_derived[fid], expected))
+]
+check("derived positions match the old hand-placed ones exactly",
+      not _mismatched, str(_mismatched))
+
+for _profile in BUILTIN_PROFILES[1:]:
+    _rests = fingering.rest_positions(_profile)
+    check(f"{_profile.id} gets resting positions too", bool(_rests))
+    check(f"{_profile.id} rests all land on the board",
+          all(0 <= r.x <= _profile.width and 0 <= r.y <= _profile.height for r in _rests))
+
+check("a tall key gets a narrow pad, not one covering its label",
+      all(r.width <= 0.8 for r in fingering.rest_positions(BUILTIN_PROFILES[1])
+          if r.finger.id == "l-pinky"))
 
 section("Fingering — the guide's examples are real")
 from tinysteno.screens.fingers import DOUBLE_PRESS_EXAMPLES

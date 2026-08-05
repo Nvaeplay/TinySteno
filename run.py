@@ -1,4 +1,4 @@
-"""Entry point for the TinyMod4 Steno Trainer."""
+"""Entry point for TinySteno."""
 
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ def main() -> int:
             import ctypes
 
             ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
-                "Nvaeplay.TinyMod4StenoTrainer.1"
+                "Nvaeplay.TinySteno.1"
             )
         except Exception:
             pass

@@ -83,6 +83,7 @@ class SessionRecord:
 
 
 DEFAULT_SETTINGS = {
+    "board": "tinymod4",           # id of the board profile in use
     "port": "COM5",
     "auto_connect": True,
     "hint_mode": "adaptive",       # adaptive | always | never

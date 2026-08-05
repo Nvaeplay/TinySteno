@@ -1,4 +1,4 @@
-"""Recommended finger placement for a TinyMod-style board.
+"""Recommended finger placement for a steno board.
 
 Standard stenotype fingering is more settled than it looks from the outside: every major
 theory (StenEd, Phoenix, Magnum, Learn Plover!) teaches the same column-per-finger
@@ -10,8 +10,8 @@ What is genuinely not standardised, and is marked as such in the guide:
 
 * which hand presses the asterisk -- either index finger is normal;
 * how the right pinky reaches -D and -Z, since that depends on hand size;
-* how well the "rest in the seam" technique works on a TinyMod, whose keys are flat and
-  unsculpted where a real stenotype's are contoured to encourage it.
+* how well the "rest in the seam" technique works on a hobbyist board, whose keys are
+  usually flat and unsculpted where a production stenotype's are contoured to encourage it.
 
 The load-bearing idea here is the seam. Fingers rest *between* the top and bottom rows,
 not centred on a key, because a great many sounds need both keys of a column pressed at
@@ -97,6 +97,74 @@ def finger_for(key: str) -> Finger | None:
 def color_for(key: str) -> str | None:
     finger = KEY_TO_FINGER.get(key)
     return finger.color if finger else None
+
+
+def finger_for_profile_key(profile_key) -> Finger | None:
+    """The finger for a physical key, honouring a profile's explicit override.
+
+    Unusual boards can pin a key to a specific finger; everything else falls back to the
+    standard assignment for that steno key.
+    """
+    if profile_key.finger:
+        override = FINGERS_BY_ID.get(profile_key.finger)
+        if override is not None:
+            return override
+    return KEY_TO_FINGER.get(profile_key.key)
+
+
+@dataclass(frozen=True)
+class RestPosition:
+    """Where a fingertip sits on a given board, in key-pitch units."""
+
+    finger: Finger
+    x: float
+    y: float
+    width: float
+
+
+def rest_positions(profile) -> list[RestPosition]:
+    """Derive each fingertip's resting spot from the keys it owns on this board.
+
+    The centroid of a finger's keys lands exactly where the finger should sit: for a
+    two-key column that is the seam between the rows, and for the right pinky's four keys
+    it is the middle of the block. Deriving it means an unusual board gets sensible
+    resting marks without anyone hand-placing them.
+    """
+    grouped: dict[str, list] = {}
+    for profile_key in profile.keys:
+        finger = finger_for_profile_key(profile_key)
+        if finger is not None:
+            grouped.setdefault(finger.id, []).append(profile_key)
+
+    positions: list[RestPosition] = []
+    for finger_id in DISPLAY_ORDER:
+        keys = grouped.get(finger_id)
+        if not keys:
+            continue
+        centres = [key.centre for key in keys]
+        x = sum(cx for cx, _ in centres) / len(centres)
+        y = sum(cy for _, cy in centres) / len(centres)
+
+        # A pad only spreads sideways when it sits in a horizontal seam between stacked
+        # keys. On a single key, or on keys side by side in one row, a wide pad would
+        # cover the letters.
+        distinct_rows = {round(key.row, 3) for key in keys}
+        if len(keys) > 1 and len(distinct_rows) > 1:
+            width = max(cx for cx, _ in centres) - min(cx for cx, _ in centres) + 1.0
+        else:
+            width = 0.8
+
+        # With only one key there is no seam to sit in, so the centroid lands exactly on
+        # the letter. Drop the pad into the lower part of the key instead -- that is where
+        # a fingertip rests on a tall stenotype key anyway.
+        if len(keys) == 1:
+            only = keys[0]
+            y = only.row + only.height - 0.28
+
+        positions.append(
+            RestPosition(finger=FINGERS_BY_ID[finger_id], x=x, y=y, width=width)
+        )
+    return positions
 
 
 def fingers_for_chord(keys) -> list[tuple[Finger, list[str]]]:

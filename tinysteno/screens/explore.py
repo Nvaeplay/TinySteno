@@ -1,6 +1,6 @@
 """A free-play board.
 
-Click keys to build a chord, or press them on the TinyMod4, and see the outline plus what
+Click keys to build a chord, or press them on your board, and see the outline plus what
 your dictionary would write. Doubles as the connection test: if strokes appear here, the
 serial link is working.
 """
@@ -26,11 +26,12 @@ from ..widgets.keyboard import StenoKeyboard
 class ExploreScreen(QWidget):
     """Tap the board, or use the device, and see what each chord writes."""
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, profile=None) -> None:
         super().__init__(parent)
         self._dictionary = None
         self._chord: set[str] = set()
         self._history: list[str] = []
+        self._profile = profile
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(28, 24, 28, 22)
@@ -38,11 +39,11 @@ class ExploreScreen(QWidget):
 
         layout.addWidget(heading("Explore the board"))
         layout.addWidget(
-            faint("Click keys to build a chord, or press them on your TinyMod4. Strokes from "
+            faint("Click keys to build a chord, or press them on your board. Strokes from "
                   "the device show up here too, which makes this a quick connection test.")
         )
 
-        self.keyboard = StenoKeyboard(interactive=True)
+        self.keyboard = StenoKeyboard(interactive=True, profile=profile)
         self.keyboard.key_clicked.connect(self._toggle_key)
         layout.addWidget(self.keyboard, stretch=1)
 
@@ -85,6 +86,12 @@ class ExploreScreen(QWidget):
 
     def set_dictionary(self, dictionary) -> None:
         self._dictionary = dictionary
+
+    def set_profile(self, profile) -> None:
+        self.keyboard.set_profile(profile)
+        # Keys the new board does not have cannot stay in the chord being built.
+        self._chord &= profile.steno_keys
+        self._refresh()
 
     def set_status(self, state: str, message: str) -> None:
         self.status.set_status(state, message)
