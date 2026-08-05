@@ -7,6 +7,8 @@ session or marking the screen red.
 
 from __future__ import annotations
 
+import time
+
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QHBoxLayout,
@@ -25,9 +27,21 @@ from ..widgets.common import Card, StatusPill, StrokeDots, faint, mono_label
 from ..widgets.keyboard import StenoKeyboard
 
 # How long feedback stays on screen before the drill resets for another go.
-_SUCCESS_PAUSE_MS = 520
-_STROKE_PAUSE_MS = 320
-_ERROR_PAUSE_MS = 2100
+#
+# These are ceilings on reading time, not floors on how fast you may write: a stroke that
+# arrives during a pause ends it early and is acted on, rather than being dropped. That
+# distinction is the whole point -- see `submit_chord`. Because the learner can always cut
+# a pause short, these can be generous without ever being in the way.
+_SUCCESS_PAUSE_MS = 380
+_STROKE_PAUSE_MS = 160
+_ERROR_PAUSE_MS = 1200
+
+# ...with one exception. Gemini PR sends a frame on release, so if the learner rolls
+# straight into the next chord its frame can land a few tens of milliseconds after the
+# feedback renders. Without a floor, the explanation of what went wrong would be replaced
+# before it could possibly be read. This is a debounce against a stroke already in flight,
+# not a lockout, and it is deliberately shorter than a reaction time.
+_MIN_READ_MS = 120
 
 
 class PracticeScreen(QWidget):
@@ -41,6 +55,8 @@ class PracticeScreen(QWidget):
         self._profile = profile
         self._session: Session | None = None
         self._locked = False
+        self._pending = None            # What the pause will do when it ends
+        self._pause_started = 0.0       # monotonic seconds, for the _MIN_READ_MS debounce
         self._keyboard_fallback = False
         self._show_finger_guidance = True
         self._held: set[str] = set()
@@ -51,6 +67,13 @@ class PracticeScreen(QWidget):
         self._clock = QTimer(self)
         self._clock.setInterval(500)
         self._clock.timeout.connect(self._update_header)
+
+        # One reusable timer for the feedback pause, rather than QTimer.singleShot, because
+        # a singleShot cannot be cancelled -- and being able to cancel it is what lets an
+        # incoming stroke cut the pause short instead of being thrown away.
+        self._pause_timer = QTimer(self)
+        self._pause_timer.setSingleShot(True)
+        self._pause_timer.timeout.connect(self._end_pause)
 
         self.setFocusPolicy(Qt.StrongFocus)
 
@@ -143,8 +166,9 @@ class PracticeScreen(QWidget):
     # ---- session lifecycle --------------------------------------------------------
 
     def start(self, session: Session, title: str) -> None:
+        # A pause left over from the previous session would otherwise fire into this one.
+        self._cancel_pause()
         self._session = session
-        self._locked = False
         self.title_label.setText(title)
         self.progress.setMaximum(max(1, session.total))
         self._clear_feedback()
@@ -254,10 +278,54 @@ class PracticeScreen(QWidget):
 
     # ---- input --------------------------------------------------------------------
 
+    # ---- feedback pauses ------------------------------------------------------------
+
+    def _pause(self, milliseconds: int, action) -> None:
+        """Hold the feedback on screen, then run `action`.
+
+        The learner can cut this short simply by writing again -- see `submit_chord`.
+        """
+        self._pending = action
+        self._locked = True
+        self._pause_started = time.monotonic()
+        self._pause_timer.start(milliseconds)
+
+    def _end_pause(self) -> None:
+        """Finish the current pause now, whether it timed out or was interrupted.
+
+        Runs exactly the continuation the timer would have run, so the screen reaches an
+        identical state either way -- only sooner.
+        """
+        self._pause_timer.stop()
+        action, self._pending = self._pending, None
+        self._locked = False
+        if action is not None:
+            action()
+
+    def _cancel_pause(self) -> None:
+        """Drop a pending pause without running it, for skip/finish/restart."""
+        self._pause_timer.stop()
+        self._pending = None
+        self._locked = False
+
+    # ---- input ----------------------------------------------------------------------
+
     def submit_chord(self, keys: set[str]) -> None:
         """Entry point for a decoded chord, from the device or the keyboard fallback."""
-        if self._locked or self._session is None or not keys:
+        if self._session is None or not keys:
             return
+
+        if self._locked:
+            # A stroke is a deliberate physical action -- one Gemini PR frame is one whole
+            # chord, sent on release. Discarding it because feedback happens to be on
+            # screen loses the learner's work and reads as the app being unresponsive. So
+            # writing again ends the pause and the stroke counts.
+            if (time.monotonic() - self._pause_started) * 1000 < _MIN_READ_MS:
+                return
+            self._end_pause()
+            if self._session is None:      # The pause may have finished the session.
+                return
+
         result = self._session.submit(keys)
         if result is None:
             return
@@ -286,11 +354,10 @@ class PracticeScreen(QWidget):
         self.compare_label.setText("")
         self.dots.set_progress(result.prompt.stroke_count, result.prompt.stroke_index)
 
-        self._locked = True
         if result.prompt_complete:
-            QTimer.singleShot(_SUCCESS_PAUSE_MS, self._next_prompt)
+            self._pause(_SUCCESS_PAUSE_MS, self._next_prompt)
         else:
-            QTimer.singleShot(_STROKE_PAUSE_MS, self._resume)
+            self._pause(_STROKE_PAUSE_MS, self._resume)
 
     def _on_error(self, result) -> None:
         analysis = result.analysis
@@ -318,15 +385,15 @@ class PracticeScreen(QWidget):
         )
         self.compare_label.setStyleSheet(f"color: {theme.TEXT_FAINT};")
 
-        self._locked = True
-        QTimer.singleShot(_ERROR_PAUSE_MS, self._resume)
+        self._pause(_ERROR_PAUSE_MS, self._resume)
+
+    # Both continuations below run only as a pause action, and `_pause`/`_end_pause`/
+    # `_cancel_pause` own `_locked` between them -- so neither touches it.
 
     def _resume(self) -> None:
-        self._locked = False
         self._show_prompt()
 
     def _next_prompt(self) -> None:
-        self._locked = False
         session = self._session
         if session is None:
             return
@@ -339,6 +406,10 @@ class PracticeScreen(QWidget):
     # ---- controls -----------------------------------------------------------------
 
     def _force_hint(self) -> None:
+        # Pressing a button is as clear a "I have read it, move on" as writing is, so it
+        # ends a pause for the same reason a stroke does.
+        if self._locked:
+            self._end_pause()
         session = self._session
         if session is None or session.prompt is None:
             return
@@ -349,7 +420,9 @@ class PracticeScreen(QWidget):
         session = self._session
         if session is None:
             return
-        self._locked = False
+        # Drop any pending pause rather than letting it fire: its continuation would
+        # advance or re-show a prompt we have already moved past.
+        self._cancel_pause()
         if session.skip() is None:
             self._finish()
         else:
@@ -361,6 +434,7 @@ class PracticeScreen(QWidget):
 
     def _finish(self) -> None:
         self._clock.stop()
+        self._cancel_pause()
         self.keyboard.clear()
         session, self._session = self._session, None
         if session is not None:

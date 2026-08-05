@@ -481,6 +481,108 @@ for word, outline, action, _why in DOUBLE_PRESS_EXAMPLES:
         check(f"{outline}: guide names the right finger",
               found[0][0].label.lower() in action, f"{action} vs {found[0][0].label}")
 
+section("Practice — a stroke during feedback is acted on, never discarded")
+# One Gemini PR frame is one whole chord, sent on release, so a dropped stroke is a
+# deliberate physical action thrown away with no sign it was ignored. That is what made
+# practice feel unresponsive. These checks pin the fix down.
+#
+# A PracticeScreen is a widget, so this needs a QApplication -- offscreen, so it still
+# runs with no display attached.
+import os as _os
+
+_os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+from PySide6.QtWidgets import QApplication
+
+from tinysteno.board import DEFAULT_PROFILE_ID
+from tinysteno.screens.practice import _MIN_READ_MS, PracticeScreen
+
+_app = QApplication.instance() or QApplication([])
+
+
+def _practice(count: int = 4):
+    """A live practice screen and its session, drilling the first few first-words items."""
+    profile = Profile()
+    session = Session(
+        items=list(lessons[0].items)[:count], dictionary=dictionary,
+        profile=profile, lesson_key="test", hint_mode="adaptive",
+    )
+    screen = PracticeScreen(profile=_registry.resolve(DEFAULT_PROFILE_ID))
+    screen.start(session, "Test")
+    return screen, session
+
+
+def _age_pause(screen, seconds: float = 1.0) -> None:
+    """Pretend the current pause started `seconds` ago, rather than sleeping for it."""
+    screen._pause_started -= seconds
+
+
+_screen, _session = _practice()
+_wanted = _session.prompt.outline
+_screen.submit_chord({"W-"})                       # nonsense: forces an error pause
+check("a wrong stroke starts a pause", _screen._locked)
+check("the pause knows how it will end", _screen._pending is not None)
+
+_screen.submit_chord(parse_stroke(_wanted))        # immediately -- inside the debounce
+check(f"a stroke inside the {_MIN_READ_MS}ms debounce is ignored",
+      _screen._pending.__name__ == "_resume",
+      "the error feedback was replaced before it could be read")
+
+_age_pause(_screen)
+_screen.submit_chord(parse_stroke(_wanted))        # the fix: this used to vanish entirely
+check("a stroke after the debounce is acted on, not dropped",
+      _screen._pending is not None and _screen._pending.__name__ == "_next_prompt",
+      f"pending={_screen._pending}")
+
+# Interrupting must land in the same place as waiting the pause out -- the continuation
+# that runs is the very one the timer would have run.
+_interrupted, _s_int = _practice()
+_out = _s_int.prompt.outline
+_interrupted.submit_chord({"W-"})
+_age_pause(_interrupted)
+_interrupted.submit_chord(parse_stroke(_out))
+_interrupted._end_pause()                          # let the success pause complete
+_waited, _s_wait = _practice()
+_out2 = _s_wait.prompt.outline
+_waited.submit_chord({"W-"})
+_waited._end_pause()                               # as the timer would have fired
+_waited.submit_chord(parse_stroke(_out2))
+_waited._end_pause()
+check("interrupting reaches the same prompt as waiting it out",
+      _s_int.prompt.text == _s_wait.prompt.text,
+      f"{_s_int.prompt.text!r} vs {_s_wait.prompt.text!r}")
+check("interrupting records the same number of errors",
+      _s_int.prompt.errors == _s_wait.prompt.errors)
+
+# A stroke arriving as the last prompt is retired must not reach into a dead session.
+_last, _s_last = _practice(count=1)
+_last.submit_chord(parse_stroke(_s_last.prompt.outline))
+_age_pause(_last)
+_ended = True
+try:
+    _last.submit_chord(parse_stroke("KAT"))
+except Exception as _exc:                          # noqa: BLE001 - any crash is the bug
+    _ended = False
+    print(f"      {_exc!r}")
+check("a stroke landing as the session ends does not crash", _ended)
+check("and the session really did end", _last._session is None)
+
+# Skipping or finishing must drop a pending pause rather than let it fire into whatever
+# replaced the prompt it belonged to.
+_skipper, _s_skip = _practice()
+_skipper.submit_chord({"W-"})
+_skipper._skip()
+check("skipping drops the pending pause",
+      not _skipper._locked and _skipper._pending is None)
+check("and stops its timer", not _skipper._pause_timer.isActive())
+
+# The hint button is as clear a "I have read it" as writing is, so it ends a pause too --
+# otherwise it stays dead for the whole feedback window, which is the same complaint.
+_hinter, _s_hint = _practice()
+_hinter.submit_chord({"W-"})
+_hinter._force_hint()
+check("the hint button ends a pause rather than being dead through it",
+      not _hinter._locked and _hinter._pending is None)
+
 section("Packaging — the PyInstaller exclude list is still honest")
 import ast
 import pathlib

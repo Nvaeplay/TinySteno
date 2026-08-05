@@ -61,6 +61,13 @@ class StenoKeyboard(QWidget):
         self._finger_mode = False
         self._seam_mode = False
 
+        # Cached derived state. Both were being rebuilt from scratch on every frame of a
+        # 30 fps animation, and the geometry on every mouse-move as well.
+        self._geom: tuple[float, QPointF] | None = None
+        self._fonts: dict[tuple[str, int, int], QFont] = {}
+        self._ui_family = theme.UI_FAMILY.split(",")[0]
+        self._mono_family = theme.MONO_FAMILY.split(",")[0]
+
         self._phase = 0.0
         self._timer = QTimer(self)
         self._timer.setInterval(33)
@@ -70,6 +77,7 @@ class StenoKeyboard(QWidget):
 
     def set_profile(self, profile: BoardProfile) -> None:
         self._profile = profile
+        self._geom = None
         self._hover = None
         self.update()
 
@@ -155,6 +163,21 @@ class StenoKeyboard(QWidget):
         self._phase += 0.055
         self.update()
 
+    def hideEvent(self, event) -> None:
+        """Stop animating a board nobody can see.
+
+        Qt does not paint a hidden widget, so this costs no frames -- but all three
+        StenoKeyboards live for the whole session in a QStackedWidget, and without this
+        every one of them keeps waking the event loop 30 times a second whether or not it
+        is the screen you are looking at.
+        """
+        self._timer.stop()
+        super().hideEvent(event)
+
+    def showEvent(self, event) -> None:
+        self._ensure_animation()
+        super().showEvent(event)
+
     def _pulse(self) -> float:
         """A gentle 0..1 breathing value."""
         return 0.5 + 0.5 * math.sin(self._phase * math.pi)
@@ -164,26 +187,57 @@ class StenoKeyboard(QWidget):
     def _keys(self) -> tuple[ProfileKey, ...]:
         return self._profile.keys if self._profile else ()
 
+    def _font(self, family: str, pixel_size: int, weight) -> QFont:
+        """A QFont from the cache. Building one per key per frame is not free."""
+        key = (family, pixel_size, int(weight))
+        font = self._fonts.get(key)
+        if font is None:
+            font = QFont(family)
+            font.setPixelSize(pixel_size)
+            font.setWeight(weight)
+            self._fonts[key] = font
+        return font
+
+    def _geometry(self) -> tuple[float, QPointF]:
+        """Pixels per key pitch, and the board's top-left corner. Cached.
+
+        `BoardProfile.width` and `.height` are `max(...)` generators over the whole key
+        tuple, and `_cell()` used to reach them six times per call -- so hit-testing one
+        24-key board cost about 3,500 generator steps, on every mouse-move event. None of
+        it can change unless the widget resizes or the profile is swapped, so it is
+        computed once and invalidated in exactly those two places.
+        """
+        if self._geom is None:
+            if not self._profile:
+                self._geom = (1.0, QPointF(0, 0))
+            else:
+                board_w, board_h = self._profile.width, self._profile.height
+                unit = min(
+                    self.width() / max(board_w, 0.001),
+                    self.height() / max(board_h, 0.001),
+                )
+                self._geom = (
+                    unit,
+                    QPointF(
+                        (self.width() - board_w * unit) / 2,
+                        (self.height() - board_h * unit) / 2,
+                    ),
+                )
+        return self._geom
+
     def _unit(self) -> float:
         """Pixels per key pitch, sized to fit the profile's extents."""
-        if not self._profile:
-            return 1.0
-        return min(
-            self.width() / max(self._profile.width, 0.001),
-            self.height() / max(self._profile.height, 0.001),
-        )
+        return self._geometry()[0]
 
     def _origin(self) -> QPointF:
-        if not self._profile:
-            return QPointF(0, 0)
-        unit = self._unit()
-        board_w = self._profile.width * unit
-        board_h = self._profile.height * unit
-        return QPointF((self.width() - board_w) / 2, (self.height() - board_h) / 2)
+        return self._geometry()[1]
+
+    def resizeEvent(self, event) -> None:
+        self._geom = None
+        super().resizeEvent(event)
 
     def _cell(self, key: ProfileKey) -> QRectF:
-        unit = self._unit()
-        origin = self._origin()
+        unit, origin = self._geometry()
         inset = KEY_INSET * unit
         return QRectF(
             origin.x() + key.col * unit + inset,
@@ -194,8 +248,7 @@ class StenoKeyboard(QWidget):
 
     def _point(self, x: float, y: float) -> QPointF:
         """Convert key-pitch coordinates to widget pixels."""
-        unit = self._unit()
-        origin = self._origin()
+        unit, origin = self._geometry()
         return QPointF(origin.x() + x * unit, origin.y() + y * unit)
 
     def _key_at(self, pos) -> ProfileKey | None:
@@ -287,10 +340,11 @@ class StenoKeyboard(QWidget):
             painter.drawRoundedRect(rect, radius, radius)
 
         # Key letter.
-        font = QFont(theme.UI_FAMILY.split(",")[0])
-        font.setPixelSize(max(9, int(min(unit, rect.height()) * 0.40)))
-        font.setWeight(QFont.DemiBold if state is not KeyState.IDLE else QFont.Medium)
-        painter.setFont(font)
+        painter.setFont(self._font(
+            self._ui_family,
+            max(9, int(min(unit, rect.height()) * 0.40)),
+            QFont.DemiBold if state is not KeyState.IDLE else QFont.Medium,
+        ))
         painter.setPen(QColor(text_color))
 
         label_rect = QRectF(rect)
@@ -301,9 +355,9 @@ class StenoKeyboard(QWidget):
         if self._show_qwerty:
             hints = QWERTY_HINTS.get(key.key, ())
             if hints:
-                small = QFont(theme.MONO_FAMILY.split(",")[0])
-                small.setPixelSize(max(7, int(unit * 0.20)))
-                painter.setFont(small)
+                painter.setFont(self._font(
+                    self._mono_family, max(7, int(unit * 0.20)), QFont.Normal
+                ))
                 painter.setPen(QColor(theme.TEXT_FAINT))
                 hint_rect = QRectF(
                     rect.x(), rect.y() + rect.height() * 0.62,

@@ -150,6 +150,14 @@ The drill still names the one it was teaching so you see both.
 chord. After one clean run the outline text drops. After three, no hint at all. Any error
 brings the full hint straight back.
 
+**Never throws a stroke away.** Feedback stays on screen for a moment after each attempt so
+there is time to read it, but that is a ceiling on reading time, not a floor on how fast you
+may write. Write again and the pause ends immediately and the stroke counts. One Gemini PR
+frame is one whole chord, sent on release, so a dropped stroke is a deliberate physical
+action lost with no sign it was ignored — which reads as the app being slow even while it
+sits idle. The only exception is a 120 ms debounce, so a chord already in flight cannot wipe
+the explanation of what just went wrong before you can read it.
+
 ## The lessons
 
 | Lesson | What it covers |
@@ -226,6 +234,13 @@ Two guards are worth calling out. One asserts the TinyMod4 profile's geometry is
 to the hardcoded layout that predated profiles, so generalising the renderer cannot quietly
 move a key. Another asserts the derived finger-rest positions match the old hand-placed
 ones exactly.
+
+The practice loop's pause handling is tested directly, because it is where responsiveness
+actually lives: that a stroke arriving mid-pause is acted on rather than dropped, that it
+lands in the same place as waiting the pause out, that the debounce still holds, that a
+stroke arriving as the last prompt retires does not reach into a dead session, and that
+skipping or asking for a hint drops the pause rather than letting it fire into whatever
+replaced the prompt it belonged to.
 
 Photo detection is tested against a board it rendered itself, so the right answer is known:
 a fake photo goes in, and the checks are that every keycap comes back, that the three

@@ -204,15 +204,19 @@ print(f"  verdict shown: {window.practice.verdict_label.text()!r}")
 print(f"  detail: {window.practice.detail_label.text()!r}")
 shot("09-practice-side-swap")
 
-# Now the correct chord.
-window.practice._locked = False
+# Now the correct chord, written *during* the error pause. This used to be discarded
+# outright; it is the whole point of the change. Age the pause past its read debounce,
+# which is all a moment of real time would have done, and take the real interrupt path
+# rather than clearing the lock by hand.
+window.practice._pause_started -= 1.0
 window._on_stroke(parse_stroke(prompt.outline), set())
 settle()
+print(f"  mid-pause stroke accepted: {window.practice._pending is not None}")
 print(f"  verdict shown: {window.practice.verdict_label.text()!r}")
 shot("10-practice-correct")
 
-# Finish the session to reach the summary.
-window.practice._locked = False
+# Finish the session to reach the summary. Each pause is ended by calling the very
+# continuation its timer would have called, so no screen state is faked.
 session = window.practice._session
 guard = 0
 while session is not None and not session.finished and guard < 200:
@@ -220,12 +224,11 @@ while session is not None and not session.finished and guard < 200:
     current = session.prompt
     if current is None:
         break
-    window.practice._locked = False
     window._on_stroke(current.current_stroke, set())
     settle(2)
-    window.practice._locked = False
-    if session.prompt is current and current.is_complete:
-        session.next_prompt()
+    if window.practice._locked:
+        window.practice._end_pause()
+    settle(1)
     if window.practice._session is None:
         break
 settle()
