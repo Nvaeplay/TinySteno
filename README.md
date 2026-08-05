@@ -207,6 +207,13 @@ The icon is generated rather than checked in as a binary blob:
 py tools/make_icon.py
 ```
 
+## Licence
+
+MIT — see [LICENSE](LICENSE). Use it, fork it, ship it; just keep the copyright notice.
+
+Board profiles are plain JSON, so a profile for your own keyboard is yours to share however
+you like.
+
 ## Known limitation
 
 Only Gemini PR is implemented. It is the default for QMK steno boards and what Plover

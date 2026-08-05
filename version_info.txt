@@ -22,7 +22,7 @@ VSVersionInfo(
           StringStruct('OriginalFilename', 'TinySteno.exe'),
           StringStruct('ProductName', 'TinySteno'),
           StringStruct('ProductVersion', '1.2.1'),
-          StringStruct('LegalCopyright', 'Copyright (c) 2026 Nvaeplay'),
+          StringStruct('LegalCopyright', 'Copyright (c) 2026 Nvaeplay. MIT licence.'),
         ],
       )
     ]),
