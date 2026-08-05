@@ -511,6 +511,19 @@ else:
           str(sorted(_imported)))
     check("the exclude list is doing real work", len(_excluded) > 30, f"{len(_excluded)}")
 
+    # The spec derives the exe filename, the Windows version resource and the copyright
+    # line from this one string, and builds a version tuple out of it. A version it cannot
+    # split into integers fails the build rather than a check, so assert the shape here.
+    from tinysteno import __version__
+
+    _fields = __version__.split(".")
+    check("the version is three dotted integers",
+          len(_fields) == 3 and all(part.isdigit() for part in _fields), __version__)
+    check("the spec takes the version from the package, not a copy of it",
+          "from tinysteno import __version__" in _spec.read_text(encoding="utf-8"))
+    check("the exe is named with its version",
+          'EXE_NAME = f"TinySteno-{__version__}"' in _spec.read_text(encoding="utf-8"))
+
 section("Storage — round trip")
 import tempfile
 from pathlib import Path

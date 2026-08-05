@@ -8,9 +8,12 @@ you exactly what happened.
 
 ## Running it
 
-Grab `TinySteno.exe` and double-click it. Nothing to install — no Python, no Qt, no
-dependencies. It is a single 48 MB file that starts in about a second and can live
-anywhere, including a USB stick.
+Grab `TinySteno-1.3.0.exe` from the [latest release](https://github.com/Nvaeplay/TinySteno/releases/latest)
+and double-click it. Nothing to install — no Python, no Qt, no dependencies. It is a single
+48 MB file that starts in about a second and can live anywhere, including a USB stick.
+
+The version is in the filename, so a copy you downloaded months ago identifies itself
+without opening its properties.
 
 To run from source instead:
 
@@ -247,8 +250,15 @@ exercised rather than screenshotted.
 py -m PyInstaller tinysteno.spec --noconfirm
 ```
 
-Output lands in `dist/`. Set `TINYSTENO_ONEDIR=1` first for a one-folder build instead —
-120 MB, but starts in 0.4 s rather than 1.1 s.
+Output lands in `dist/` as `TinySteno-<version>.exe`. Set `TINYSTENO_ONEDIR=1` first for a
+one-folder build instead — 120 MB, but starts in 0.4 s rather than 1.1 s.
+
+The version lives in exactly one place, `tinysteno/__init__.py`. The spec derives the
+filename, the Windows version resource and the copyright line from it, and writes the
+resource into `build/` at build time. It used to be repeated in a checked-in
+`version_info.txt` and went stale exactly as you would expect — a build shipped claiming a
+licence the repo did not yet have. A check in `tests.py` asserts the spec still reads the
+version from the package rather than a copy.
 
 The spec excludes about fifty PySide6 modules the app never imports. That is what keeps it
 to 48 MB; a default PySide6 build of this app is over 150 MB. A check in `tests.py` confirms
