@@ -39,6 +39,7 @@ class SettingsScreen(QWidget):
     reconnect_requested = Signal()
     export_requested = Signal()
     open_boards_requested = Signal()
+    design_board_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -81,6 +82,10 @@ class SettingsScreen(QWidget):
 
         board_buttons = QHBoxLayout()
         board_buttons.setSpacing(8)
+        self.design_board = QPushButton("Design from a photo…")
+        self.design_board.setObjectName("Primary")
+        self.design_board.clicked.connect(self.design_board_requested)
+        board_buttons.addWidget(self.design_board)
         self.export_board = QPushButton("Save a copy I can edit")
         self.export_board.clicked.connect(self.export_requested)
         self.open_boards = QPushButton("Open boards folder")
@@ -91,9 +96,11 @@ class SettingsScreen(QWidget):
         board_card.body.addLayout(board_buttons)
 
         self.board_help = faint(
-            "Your own boards go in the folder above as JSON, one file per board, and are "
-            "picked up on the next start. A file reusing a built-in id replaces it, so a "
-            "layout we got wrong can be corrected without waiting for a new build."
+            "If your board is not here, photograph it and trace it in the designer — or "
+            "save a copy of the closest one and edit the JSON by hand. Either way it "
+            "lands in the folder above, one file per board. A file reusing a built-in id "
+            "replaces it, so a layout we got wrong can be corrected without waiting for "
+            "a new build."
         )
         board_card.body.addWidget(self.board_help)
 

@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 from PySide6.QtCore import QCoreApplication, Qt
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QPixmap
 from PySide6.QtWidgets import QApplication
 
 from tinysteno import theme
@@ -88,6 +88,87 @@ shot("04-explore")
 
 window._navigate("progress")
 shot("06-progress")
+
+# ---- the board designer, from a photo all the way to a saved profile -------------------
+print("Designing a board from a photo…")
+import tempfile
+from pathlib import Path as _Path
+
+from PySide6.QtWidgets import QMessageBox
+
+from tinysteno import mainwindow as mainwindow_module
+from tinysteno.board import BOARDS_DIR, BoardRegistry
+from tinysteno.screens import editor as editor_module
+from tools.synthboard import render as render_board, tinymod_layout
+
+# Saving a board raises modal dialogs from two modules: the designer validates, and the
+# window confirms the switch. Both have to be answered from here, or the smoke test hangs
+# on a dialog nobody is there to click. Answering them keeps the real code path rather
+# than reaching past it.
+_dialogs: list[str] = []
+
+
+class _Answers:
+    Yes = QMessageBox.Yes
+
+    @staticmethod
+    def information(_parent, title, text):
+        _dialogs.append(f"info: {title}")
+
+    @staticmethod
+    def warning(_parent, title, text):
+        _dialogs.append(f"warning: {title} — {text.splitlines()[0]}")
+
+    @staticmethod
+    def question(_parent, title, _text):
+        _dialogs.append(f"question: {title}")
+        return _Answers.Yes
+
+
+editor_module.QMessageBox = _Answers
+mainwindow_module.QMessageBox = _Answers
+
+with tempfile.TemporaryDirectory() as tmp:
+    photo = render_board(_Path(tmp) / "board.png", *tinymod_layout())
+    designer = window.editor
+    designer._photo_path = photo
+    designer.canvas.set_photo(QPixmap(str(photo)))
+    designer.detect_button.setEnabled(True)
+    designer._detect()
+    settle()
+
+    print(f"  detected {len(designer.canvas.keys)} keys from the photo")
+    print(f"  status: {designer.status_label.text()}")
+
+    designer.canvas.select([4])
+    designer._on_selection()
+    window._navigate("editor")
+    shot("14-board-designer")
+
+    # Learn mode: a stroke off the board names the selected key and moves on.
+    designer.learn_button.setChecked(True)
+    designer.canvas.select([0])
+    window._on_stroke({"S-"}, {"S2-"})
+    settle()
+    print(f"  learned from a press: {designer.canvas.keys[0].key} "
+          f"({designer.canvas.keys[0].switch}), {designer.learn_status.text()}")
+    designer.learn_button.setChecked(False)
+
+    designer.name_edit.setText("Smoke test board")
+    designer._save()
+    settle()
+
+saved_path = BOARDS_DIR / "smoke-test-board.json"
+try:
+    reloaded = BoardRegistry.load().get("smoke-test-board")
+    print(f"  saved and reloaded: {reloaded.name if reloaded else 'MISSING'}, "
+          f"{len(reloaded.keys) if reloaded else 0} keys")
+    print(f"  dialogs raised: {_dialogs}")
+finally:
+    if saved_path.exists():
+        saved_path.unlink()
+    window._on_settings_changed({**profile.settings, "board": "tinymod4"})
+    settle()
 
 # ---- switch boards and confirm everything follows --------------------------------------
 print("Switching boards…")

@@ -11,6 +11,7 @@ from tinysteno.protocol import (
     FrameReader,
     decode_frame,
     format_stroke,
+    key_side,
     parse_outline,
     parse_stroke,
 )
@@ -302,6 +303,91 @@ _bad_key = BoardProfile(id="x", name="x", keys=(
 ))
 check("a non-steno key is rejected",
       any("not a steno key" in problem for problem in board_module.validate(_bad_key)))
+
+# ---------------------------------------------------------------------------------------
+section("Board designer — guessing the steno keys from geometry alone")
+from tinysteno import boardimage
+
+# The built-in profiles are layouts whose right answer is known, so they double as the
+# fixture for the guesser. standard23 is the one that matters: its tall S and asterisk
+# span both rows, which is what breaks a naive row-by-row count.
+for _profile in BUILTIN_PROFILES:
+    _boxes = [
+        boardimage.Box(k.col, k.row, k.width, k.height) for k in _profile.keys
+    ]
+    _guessed = boardimage.infer_keys(_boxes)
+    _actual = [k.key for k in _profile.keys]
+    _wrong = [
+        f"{a}->{g}" for a, g in zip(_actual, _guessed) if a != g
+    ]
+    check(f"{_profile.id}: every key is guessed from its position",
+          not _wrong, f"{len(_wrong)} wrong: {_wrong[:4]}")
+
+# Steno fixes the banks at four columns left and five right, so a row wider than nine can
+# only be widening in the middle. Guessing that the surplus is asterisks is what makes the
+# 26-key split board come out right, and it is the only reading the notation allows.
+_wide = boardimage.infer_keys([boardimage.Box(col, 0.0) for col in range(11)])
+check("a row wider than nine puts the surplus in the asterisk column",
+      _wide.count("*") == 2 and _wide[0] == "S-" and _wide[-1] == "-D", str(_wide))
+_narrow = boardimage.infer_keys([boardimage.Box(col, 0.0) for col in range(6)])
+check("a row too short to be standard is still split across both hands",
+      {key_side(k) for k in _narrow} == {"left", "right"}, str(_narrow))
+
+section("Board designer — reading a layout out of a picture")
+import tempfile as _tempfile
+from pathlib import Path as _Path
+
+from tools.synthboard import render as _render_board, tinymod_layout as _tinymod_layout
+
+_positions, _bare = _tinymod_layout()
+with _tempfile.TemporaryDirectory() as _tmp:
+    _photo = _render_board(_Path(_tmp) / "board.png", _positions, _bare)
+    _found = boardimage.detect(_photo)
+
+    check("a board is found at all", _found.ok, str(_found.warnings))
+    check("every keycap is detected",
+          _found.detected == len(_positions) - len(_bare),
+          f"{_found.detected} of {len(_positions) - len(_bare)}")
+    # The asterisk column is photographed with no keycaps on it, exactly as on the real
+    # hardware, so those three switches exist only as gaps in otherwise even rows.
+    check("switches with no keycap are inferred from the gaps",
+          _found.filled == len(_bare), f"{_found.filled} of {len(_bare)}")
+    check("the layout comes back the size it went in",
+          len(_found.boxes) == len(_positions),
+          f"{len(_found.boxes)} of {len(_positions)}")
+
+    _by_key: dict[str, int] = {}
+    for _key in _found.keys:
+        _by_key[_key] = _by_key.get(_key, 0) + 1
+    check("both S switches are recognised", _by_key.get("S-") == 2, str(_by_key.get("S-")))
+    check("all three asterisks are recognised", _by_key.get("*") == 3, str(_by_key.get("*")))
+    check("the thumbs land on the vowels",
+          all(_by_key.get(k) == 1 for k in ("A-", "O-", "-E", "-U")), str(_by_key))
+    check("the detected layout is a usable profile",
+          not board_module.validate(BoardProfile(
+              id="detected", name="detected",
+              keys=tuple(
+                  board_module.ProfileKey(k, k.strip("-"), b.col, b.row, b.width, b.height)
+                  for b, k in zip(_found.boxes, _found.keys)
+              ),
+          )))
+
+    # Key pitch is what every other coordinate is expressed in, so an error here scales
+    # the whole layout. Measured along the top row, which the synthetic board draws on an
+    # exact 1.0 pitch nine keys wide -- across rows would compare the offset thumbs
+    # against the banks and measure nothing.
+    _top = sorted(b.col for b in _found.boxes if b.row < 0.5)
+    check("the top row has ten keys", len(_top) == 10, str(len(_top)))
+    check("key pitch is recovered to within 2%",
+          abs((_top[-1] - _top[0]) / 9 - 1.0) < 0.02,
+          f"{(_top[-1] - _top[0]) / 9:.4f}")
+    # Individual caps may sit a few percent out; an inferred one lands at the midpoint of
+    # its gap, because nothing in the photo says where inside the gap it really was.
+    _real = sorted(b.col for b in _found.boxes if b.row < 0.5 and not b.inferred)
+    check("neighbouring detected caps sit one pitch apart",
+          all(abs(b - a - 1.0) < 0.05 for a, b in zip(_real, _real[1:])
+              if b - a < 1.5),
+          str([round(b - a, 3) for a, b in zip(_real, _real[1:])]))
 
 section("Fingering — every key has an owner")
 from tinysteno import fingering

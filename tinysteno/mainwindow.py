@@ -26,6 +26,7 @@ from .dictionary import StenoDictionary
 from .lessons import LessonItem, sentence_lesson, validate_lessons
 from .machine import State, StenoMachine
 from .screens.custom import CustomTextScreen
+from .screens.editor import BoardEditorScreen
 from .screens.explore import ExploreScreen
 from .screens.fingers import FingersScreen
 from .screens.home import HomeScreen
@@ -46,6 +47,7 @@ _NAV = [
     ("fingers", "Finger positions"),
     ("custom", "Your own text"),
     ("explore", "Explore the board"),
+    ("editor", "Board designer"),
     ("progress", "Progress"),
     ("settings", "Settings"),
 ]
@@ -112,6 +114,9 @@ class MainWindow(QMainWindow):
         self.explore = ExploreScreen(profile=self.board)
         self.explore.set_dictionary(self.dictionary)
 
+        self.editor = BoardEditorScreen()
+        self.editor.board_saved.connect(self._on_board_saved)
+
         self.progress = ProgressScreen()
         self.progress.review_requested.connect(lambda: self._start_lesson("review"))
 
@@ -123,6 +128,7 @@ class MainWindow(QMainWindow):
         self.settings.reconnect_requested.connect(self._reconnect)
         self.settings.export_requested.connect(self._export_board)
         self.settings.open_boards_requested.connect(self._open_boards_folder)
+        self.settings.design_board_requested.connect(lambda: self._navigate("editor"))
 
         self.summary = SummaryScreen()
         self.summary.home_requested.connect(self._show_home)
@@ -131,7 +137,7 @@ class MainWindow(QMainWindow):
 
         for screen in (
             self.home, self.practice, self.fingers, self.custom,
-            self.explore, self.progress, self.settings, self.summary,
+            self.explore, self.editor, self.progress, self.settings, self.summary,
         ):
             self.stack.addWidget(screen)
 
@@ -235,6 +241,35 @@ class MainWindow(QMainWindow):
         self.boards = BoardRegistry.load()
         self.settings.set_boards(self.boards, self.board.id)
 
+    def _on_board_saved(self, profile_id: str) -> None:
+        """A board came out of the designer: pick it up and switch to it straight away.
+
+        Reloading rather than trusting the in-memory profile means the saved file goes
+        through exactly the same parse and validation as one written by hand, so a board
+        that survives the designer but not a round-trip is caught here rather than on the
+        user's next start.
+        """
+        self.boards = BoardRegistry.load()
+        saved = self.boards.get(profile_id)
+        if saved is None:
+            QMessageBox.warning(
+                self, "Saved, but not loaded",
+                f"The board was written to {BOARDS_DIR}, but could not be read back. "
+                f"{'; '.join(self.boards.warnings) or 'No reason was reported.'}",
+            )
+            return
+
+        self.board = saved
+        self.profile.settings["board"] = profile_id
+        self.profile.save()
+        self._apply_board()
+        self.settings.set_boards(self.boards, self.board.id)
+        QMessageBox.information(
+            self, "Board saved",
+            f"{saved.name} is now your board — {len(saved.keys)} keys. "
+            f"Lessons and the finger guide have switched over to it.",
+        )
+
     def _open_boards_folder(self) -> None:
         BOARDS_DIR.mkdir(parents=True, exist_ok=True)
         QDesktopServices.openUrl(QUrl.fromLocalFile(str(BOARDS_DIR)))
@@ -250,6 +285,8 @@ class MainWindow(QMainWindow):
             self.stack.setCurrentWidget(self.custom)
         elif key == "explore":
             self.stack.setCurrentWidget(self.explore)
+        elif key == "editor":
+            self.stack.setCurrentWidget(self.editor)
         elif key == "progress":
             self.progress.refresh(self.profile)
             self.stack.setCurrentWidget(self.progress)
@@ -341,12 +378,17 @@ class MainWindow(QMainWindow):
 
     # ---- device -------------------------------------------------------------------
 
-    def _on_stroke(self, keys: set, _physical: set) -> None:
+    def _on_stroke(self, keys: set, physical: set) -> None:
         current = self.stack.currentWidget()
         if current is self.practice:
             self.practice.submit_chord(set(keys))
         elif current is self.explore:
             self.explore.show_stroke(set(keys))
+        elif current is self.editor:
+            # The designer wants the physical switch too: it is the only thing that tells
+            # the two S switches or the four asterisk bits apart, which is exactly what
+            # somebody labelling their own board needs recorded.
+            self.editor.apply_stroke(set(keys), set(physical))
 
     def _on_status(self, state: str, message: str) -> None:
         self._sidebar_status.setText(message)

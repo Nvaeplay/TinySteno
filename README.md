@@ -49,18 +49,57 @@ that span two rows are all just coordinates.
 
 Only these three ship built in, and that is deliberate. Reconstructing other boards'
 layouts from memory would risk teaching people the wrong positions — the same reason lesson
-outlines are curated rather than guessed. Instead, **Settings → Board → Save a copy I can
-edit** writes the current profile to
-`%LOCALAPPDATA%\TinyStenoTrainer\boards\` as JSON. Adjust the coordinates, change the `id`
-and `name`, restart, and your board appears in the list. A file reusing a built-in `id`
-replaces it, so a layout that is wrong for your hardware can be corrected without waiting
-for a new build.
+outlines are curated rather than guessed. Your board goes in the **board designer**
+instead.
 
 Profiles are validated on load: unknown steno keys, unsupported protocols and overlapping
 keycaps are all rejected with a message rather than silently drawing something wrong.
 
 When a board lacks a key, lessons needing it are dropped rather than asking you to press
 something you do not have.
+
+## The board designer
+
+Photograph your keyboard, and the app traces it.
+
+![Board designer](shots/14-board-designer.png)
+
+**It finds the keycaps for you.** The photo is thresholded against a local mean rather than
+a global one, because the shot people actually take has one end of the board lit and the
+other in shadow, and black keycaps on a black PCB differ from their surroundings by a few
+levels. Merged caps are split back apart, rows are straightened, and the key pitch is
+measured from the caps themselves.
+
+**It fills in switches with no keycap.** A bare switch does not read as a keycap, but it
+does leave an exactly key-sized hole in an otherwise even row — which is how the asterisk
+column looks on most hobbyist boards. Holes a whole number of pitches wide get a key, drawn
+dashed so you can see which ones were never actually in the photo.
+
+**It guesses which steno key each one is.** Not by measuring, but by counting: English
+Stenotype fixes the banks at four columns on the left and five on the right, so anything
+past nine keys in a row is the asterisk column and can be nothing else. That rule is what
+gets a 24-key TinyMod, a 23-key stenotype with tall S and asterisk, and a 26-key split
+board all right from geometry alone — each is asserted in `tests.py`.
+
+**Then you correct it**, because none of the above is reliable on an awkward photo and it
+does not pretend to be. The photo stays behind the keys as a tracing backdrop, in the same
+coordinate space, so dragging a key onto the picture of a switch *is* writing its
+coordinates. Drag a box round a bank to move it as one, `Line up` to straighten a row,
+`Space evenly` to fix the gaps, arrow keys to nudge, double-click to add a key.
+
+**And for what a photo cannot tell you: press the key.** Arm *Press keys on my board* and
+walk the board one switch at a time. Each press writes what the hardware actually reported
+— including the physical switch name, which is the only thing that distinguishes the two S
+switches or the four asterisk bits — and moves the selection on. That is the difference
+between a layout that looks right and one that is known to be right.
+
+Saving writes JSON to `%LOCALAPPDATA%\TinyStenoTrainer\boards\` and switches you to it. It
+is reloaded through the same parse and validation as a hand-written file, so anything that
+would fail on next start fails now instead.
+
+You can still edit that JSON by hand — **Settings → Board → Save a copy I can edit** writes
+the current profile there as a template. A file reusing a built-in `id` replaces it, so a
+layout that is wrong for your hardware can be corrected without waiting for a new build.
 
 ## Dictionaries
 
@@ -129,6 +168,8 @@ your dictionary listed rather than silently skipped.
   double-press chords that depend on it.
 - **Explore the board** — click keys to build a chord and see what it writes, with the
   finger reading underneath. Doubles as the connection test.
+- **Board designer** — trace your own keyboard from a photo, or label it by pressing its
+  keys. See above.
 - **Progress** — accuracy, solid items, and a breakdown of where the mistakes actually are,
   with hand mix-ups called out separately. Feeds the review deck.
 - **Settings** — board, connection, dictionaries, hint mode, session length, and a QWERTY
@@ -146,11 +187,13 @@ your dictionary listed rather than silently skipped.
 
 ```
 run.py                  entry point
-tests.py                headless checks — protocol, boards, analysis, session, storage
+tests.py                headless checks — protocol, boards, detection, analysis, session
 smoke_gui.py            builds the window, drives a simulated session, renders PNGs
+tools/synthboard.py     renders a fake board photo with known geometry, for the tests
 tinysteno/
   protocol.py           Gemini PR decoding, RTFCRE formatting and parsing
   board.py              board profiles, built-ins, validation and the user registry
+  boardimage.py         finding the keycaps in a photo and guessing what they are
   machine.py            serial thread, DTR handling, reconnection
   dictionary.py         Plover dictionary loading and reverse lookup
   analysis.py           comparing what you pressed against what was asked
@@ -161,6 +204,7 @@ tinysteno/
   layout.py             QWERTY equivalents for the keyboard fallback
   theme.py              palette and stylesheet
   widgets/keyboard.py   the painted board, rendered from a profile
+  widgets/layoutcanvas.py  the editable board: drag, resize, trace over a photo
   screens/              one module per screen
 ```
 
@@ -180,12 +224,22 @@ to the hardcoded layout that predated profiles, so generalising the renderer can
 move a key. Another asserts the derived finger-rest positions match the old hand-placed
 ones exactly.
 
+Photo detection is tested against a board it rendered itself, so the right answer is known:
+a fake photo goes in, and the checks are that every keycap comes back, that the three
+switches drawn without keycaps are recovered from the gaps they leave, that the key pitch
+is right to within 2%, and that the result validates as a profile. The key-guessing rule is
+tested separately by feeding it each built-in profile's geometry and requiring it to name
+every key — 73 keys across three quite different layouts.
+
 ```bash
 py smoke_gui.py shots
 ```
 
 Builds the real window, injects strokes exactly as the serial thread would, switches boards,
-walks a full session, and writes a PNG of every screen.
+walks a full session, and writes a PNG of every screen. It also drives the board designer
+end to end — renders a board photo, detects it, labels a key from a simulated keypress,
+saves the profile and reads it back out of the boards folder — so the whole path is
+exercised rather than screenshotted.
 
 ### Building the exe
 
